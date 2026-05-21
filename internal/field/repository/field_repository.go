@@ -18,6 +18,8 @@ type FieldRepository interface {
 	Update(ctx context.Context, fieldID int, updateFields map[string]interface{}) error
 	// GetByID 根据ID获取领域
 	GetByID(ctx context.Context, fieldID int) (*model.Field, error)
+	// Delete 硬删除领域
+	Delete(ctx context.Context, fieldID int) error
 	// ListFields 分页查询领域
 	ListFields(ctx context.Context, req dto.ListFieldsRequest) ([]*dto.ListFieldsResponse, error)
 }
@@ -87,6 +89,18 @@ func (repo *FieldRepositoryImpl) GetByID(ctx context.Context, fieldID int) (*mod
 		return nil, utils.NewSystemError(fmt.Errorf("查询领域失败: %w", err))
 	}
 	return &field, nil
+}
+
+// Delete 硬删除领域
+func (repo *FieldRepositoryImpl) Delete(ctx context.Context, fieldID int) error {
+	result := repo.db.WithContext(ctx).Where("id = ?", fieldID).Delete(&model.Field{})
+	if result.Error != nil {
+		return utils.NewSystemError(fmt.Errorf("删除领域失败: %w", result.Error))
+	}
+	if result.RowsAffected == 0 {
+		return utils.NewBusinessError(utils.ErrCodeResourceNotFound, "领域不存在")
+	}
+	return nil
 }
 
 // ListFields 查询领域列表

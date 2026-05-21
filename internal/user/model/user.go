@@ -18,7 +18,6 @@ type User struct {
 	Region        string    `json:"region" gorm:"column:region"`
 	Status        int       `json:"status" gorm:"column:status;default:1"` // 默认=1，1：正常，2：禁用
 	LastLoginTime time.Time `json:"last_login_time" gorm:"column:last_login_time;autoUpdateTime"`
-	UserLevel     int       `json:"user_level" gorm:"column:user_level"`
 	Password      string    `json:"password" gorm:"column:password"`
 	Role          string    `json:"role" gorm:"column:role;default:'USER'"` // 默认=USER
 	Unit          string    `json:"unit" gorm:"column:unit;default:NULL"`

@@ -132,6 +132,8 @@ func GetValidationErrorMsg(err validator.FieldError) string {
 		return err.Field() + "查询范围错误，只能为全部数据或已删除数据"
 	case "user_group_message_type":
 		return err.Field() + "用户群组消息类型错误，必须为系统消息或群组消息"
+	case "len":
+		return err.Field() + "长度必须为" + err.Param() + "位"
 	default:
 		return err.Field() + "参数格式错误"
 	}

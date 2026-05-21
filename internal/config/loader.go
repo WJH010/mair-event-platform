@@ -79,14 +79,6 @@ func validateConfig(config *Config) error {
 		return fmt.Errorf("MinIO 存储桶名称不能为空")
 	}
 
-	// 检查 Wechat 配置
-	if config.Wechat.AppID == "" {
-		return fmt.Errorf("微信 AppID 不能为空")
-	}
-	if config.Wechat.AppSecret == "" {
-		return fmt.Errorf("微信 AppSecret 不能为空")
-	}
-
 	// 检查 JWT 配置
 	if config.JWT.JwtSecret == "" {
 		return fmt.Errorf("JWT 密钥不能为空")

@@ -179,6 +179,75 @@ func (ctr *UserController) RegisterUser(ctx *gin.Context) {
 	utils.Success(ctx, "success", nil)
 }
 
+// SMSLogin 短信登录
+func (ctr *UserController) SMSLogin(ctx *gin.Context) {
+	var req dto.SMSLoginRequest
+	if !utils.BindJSON(ctx, &req) {
+		return
+	}
+
+	accessToken, refreshToken, err := ctr.userService.SMSLogin(ctx, req)
+	if err != nil {
+		utils.HandlerFunc(ctx, err)
+		return
+	}
+
+	result := gin.H{
+		"access_token":  accessToken,
+		"refresh_token": refreshToken,
+	}
+
+	utils.Success(ctx, "success", result)
+}
+
+// ResetPassword 重置密码
+func (ctr *UserController) ResetPassword(ctx *gin.Context) {
+	var req dto.ResetPasswordRequest
+	if !utils.BindJSON(ctx, &req) {
+		return
+	}
+
+	err := ctr.userService.ResetPassword(ctx, req)
+	if err != nil {
+		utils.HandlerFunc(ctx, err)
+		return
+	}
+
+	utils.Success(ctx, "success", nil)
+}
+
+// SendSMS 发送短信验证码
+func (ctr *UserController) SendSMS(ctx *gin.Context) {
+	var req dto.SendSMSRequest
+	if !utils.BindJSON(ctx, &req) {
+		return
+	}
+
+	err := ctr.userService.SendSMSVerifyCode(ctx, req)
+	if err != nil {
+		utils.HandlerFunc(ctx, err)
+		return
+	}
+
+	utils.Success(ctx, "success", nil)
+}
+
+// VerifySMS 验证短信验证码
+func (ctr *UserController) VerifySMS(ctx *gin.Context) {
+	var req dto.VerifySMSRequest
+	if !utils.BindJSON(ctx, &req) {
+		return
+	}
+
+	verifyToken, err := ctr.userService.VerifySMSCode(ctx, req)
+	if err != nil {
+		utils.HandlerFunc(ctx, err)
+		return
+	}
+
+	utils.Success(ctx, "success", gin.H{"verify_token": verifyToken})
+}
+
 // UpdateUserRole 用户角色变更
 func (ctr *UserController) UpdateUserRole(ctx *gin.Context) {
 	var urlReq dto.UserIDRequest

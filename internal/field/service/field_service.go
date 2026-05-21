@@ -64,20 +64,8 @@ func (svc *FieldServiceImpl) UpdateField(ctx context.Context, fieldID int, req d
 	return svc.fieldRepo.Update(ctx, fieldID, updateFields)
 }
 
-// DeleteField 删除领域
 func (svc *FieldServiceImpl) DeleteField(ctx context.Context, fieldID int, operator int) error {
-	field, err := svc.fieldRepo.GetByID(ctx, fieldID)
-	if err != nil {
-		return err
-	}
-	if field == nil {
-		return utils.NewBusinessError(utils.ErrCodeResourceNotFound, "领域不存在")
-	}
-	updateFields := map[string]interface{}{
-		"enable":      2,
-		"update_user": operator,
-	}
-	return svc.fieldRepo.Update(ctx, fieldID, updateFields)
+	return svc.fieldRepo.Delete(ctx, fieldID)
 }
 
 // UpdateFieldStatus 更新领域状态

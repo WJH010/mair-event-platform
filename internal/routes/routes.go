@@ -75,8 +75,12 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 	{
 		users := api.Group("/users")
 		{
-			users.POST("", userController.RegisterUser)
+			users.POST("/sms/send", userController.SendSMS)
+			users.POST("/sms/verify", userController.VerifySMS)
+			users.POST("/register", userController.RegisterUser)
 			users.POST("/login", userController.Login)
+			users.POST("/login/sms", userController.SMSLogin)
+			users.POST("/password/reset", userController.ResetPassword)
 			users.POST("/token/refresh", userController.RefreshToken)
 
 			authUsers := users.Group("")

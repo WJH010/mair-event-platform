@@ -1,8 +1,8 @@
 package dto
 
 type LoginRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	PhoneNumber string `json:"phone_number" binding:"required,phone"`
+	Password    string `json:"password" binding:"required"`
 }
 
 type UserIDRequest struct {
@@ -15,7 +15,7 @@ type UserUpdateRequest struct {
 	AvatarURL *string `json:"avatar_url" binding:"omitempty,url"`
 	Name      *string `json:"name" binding:"omitempty,real_name"`
 	Gender    *string `json:"gender" binding:"omitempty,oneof=M F U"` // M: 男, F: 女, U: 未知
-	// PhoneNumber *string `json:"phone_number" binding:"omitempty,phone"`   // 手机号通过微信验证直接获取，暂时不允许更新
+	// PhoneNumber *string `json:"phone_number" binding:"omitempty,phone"`   // 手机号暂时不允许更新
 	Email      *string `json:"email" binding:"omitempty,email"`
 	Unit       *string `json:"unit" binding:"omitempty"`
 	Department *string `json:"department" binding:"omitempty"`
@@ -77,8 +77,9 @@ type ListUsersResponse struct {
 }
 
 type RegisterRequest struct {
-	Username string `json:"username" binding:"required"`
-	Password string `json:"password" binding:"required"`
+	PhoneNumber string `json:"phone_number" binding:"required,phone"`
+	Password    string `json:"password" binding:"required"`
+	VerifyToken string `json:"verify_token" binding:"required"`
 }
 
 type UpdateRoleRequest struct {
@@ -86,7 +87,7 @@ type UpdateRoleRequest struct {
 }
 
 type ChangePasswordRequest struct {
-	OldPassword string `json:"old_password" binding:"required"`
+	VerifyToken string `json:"verify_token" binding:"required"`
 	NewPassword string `json:"new_password" binding:"required"`
 }
 
@@ -98,6 +99,27 @@ type UpdateAdminStatusRequest struct {
 // RefreshTokenRequest 刷新token请求
 type RefreshTokenRequest struct {
 	RefreshToken string `json:"refresh_token" binding:"required"`
-	// SessionSign  string `json:"session_sign" binding:"required"`
-	SessionSign string `json:"session_sign" binding:"omitempty"`
+	SessionSign  string `json:"session_sign" binding:"omitempty"`
+}
+
+type SendSMSRequest struct {
+	PhoneNumber string `json:"phone_number" binding:"required,phone"`
+	Purpose     string `json:"purpose" binding:"required,oneof=REGISTER LOGIN CHANGE_PASSWORD RESET_PASSWORD"`
+}
+
+type VerifySMSRequest struct {
+	PhoneNumber string `json:"phone_number" binding:"required,phone"`
+	Code        string `json:"code" binding:"required,len=4"`
+	Purpose     string `json:"purpose" binding:"required,oneof=REGISTER LOGIN CHANGE_PASSWORD RESET_PASSWORD"`
+}
+
+type SMSLoginRequest struct {
+	PhoneNumber string `json:"phone_number" binding:"required,phone"`
+	VerifyToken string `json:"verify_token" binding:"required"`
+}
+
+type ResetPasswordRequest struct {
+	PhoneNumber string `json:"phone_number" binding:"required,phone"`
+	VerifyToken string `json:"verify_token" binding:"required"`
+	NewPassword string `json:"new_password" binding:"required"`
 }

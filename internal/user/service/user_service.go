@@ -9,6 +9,7 @@ import (
 	"event-platform/internal/config"
 	msgsvc "event-platform/internal/message/service"
 	rd "event-platform/internal/redis"
+	"event-platform/internal/sms"
 	"event-platform/internal/user/dto"
 	"event-platform/internal/user/model"
 	"event-platform/internal/user/repository"
@@ -18,18 +19,10 @@ import (
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/argon2"
 )
-
-// WxLoginResponse 微信登录请求参数
-type WxLoginResponse struct {
-	OpenID     string `json:"openid"`
-	SessionKey string `json:"session_key"`
-	UnionID    string `json:"unionid,omitempty"`
-	ErrCode    int    `json:"errcode,omitempty"`
-	ErrMsg     string `json:"errmsg,omitempty"`
-}
 
 // UserService 用户服务接口
 type UserService interface {
@@ -53,6 +46,14 @@ type UserService interface {
 	ChangePassword(ctx context.Context, userID int, req dto.ChangePasswordRequest) error
 	// UpdateUserStatus 更新用户状态
 	UpdateUserStatus(ctx context.Context, userID int, Operation string, operator int) error
+	// SMSLogin 通过短信验证码登录
+	SMSLogin(ctx context.Context, req dto.SMSLoginRequest) (string, string, error)
+	// ResetPassword 重置密码
+	ResetPassword(ctx context.Context, req dto.ResetPasswordRequest) error
+	// SendSMSVerifyCode 发送短信验证码
+	SendSMSVerifyCode(ctx context.Context, req dto.SendSMSRequest) error
+	// VerifySMSCode 验证短信验证码
+	VerifySMSCode(ctx context.Context, req dto.VerifySMSRequest) (string, error)
 }
 
 // UserServiceImpl 用户服务实现
@@ -60,10 +61,11 @@ type UserServiceImpl struct {
 	userRepo repository.UserRepository
 	msgSvc   msgsvc.MsgGroupService
 	cfg      *config.Config
+	smsSvc   *sms.SMSService
 }
 
-// Argon2参数配置
 const (
+	// Argon2参数配置
 	// 内存成本：哈希过程中使用的内存量（字节）
 	argonMemory uint32 = 65536 // 64MB
 	// 时间成本：计算迭代次数
@@ -74,11 +76,22 @@ const (
 	argonKeyLen uint32 = 32
 	// 盐值长度（字节）
 	argonSaltLen uint32 = 16
+	// sms参数配置
+	// 短信验证码有效期（分钟）
+	smsCodeTTL = 5 * time.Minute
+	// 短信验证码错误次数最大值
+	smsCodeErrMax = 5
+	// 短信验证码有效期（分钟）
+	smsTokenTTL = 10 * time.Minute
+	// 短信验证码发送间隔（秒）
+	smsSendInterval = 60 * time.Second
+	// 短信验证码发送次数最大值（每日）
+	smsDailyMax = 10
 )
 
 // NewUserService 创建用户服务实例
 func NewUserService(userRepo repository.UserRepository, msgSvc msgsvc.MsgGroupService, cfg *config.Config) UserService {
-	return &UserServiceImpl{userRepo: userRepo, msgSvc: msgSvc, cfg: cfg}
+	return &UserServiceImpl{userRepo: userRepo, msgSvc: msgSvc, cfg: cfg, smsSvc: sms.NewSMSService(cfg)}
 }
 
 // 生成access token（短期有效）
@@ -297,14 +310,14 @@ func verifyPassword(encodedHash, password string) (bool, error) {
 
 // Login 登录接口
 func (svc *UserServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (string, string, error) {
-	// 从数据库中根据用户名查询密码
-	userInfo, err := svc.userRepo.GetPasswordByUserName(ctx, req.Username)
+	// 从数据库中根据手机号查询密码
+	userInfo, err := svc.userRepo.GetPasswordByPhoneNumber(ctx, req.PhoneNumber)
 	if err != nil {
 		return "", "", err
 	}
 	// 用户密码为空，不允许登录后台系统
 	if userInfo.Password == "" {
-		return "", "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "账号未设置密码，无法登录后台系统")
+		return "", "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "账号未设置密码，无法登录")
 	}
 
 	// 验证密码
@@ -318,7 +331,7 @@ func (svc *UserServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (st
 
 	// 检查用户状态
 	if userInfo.Status != utils.UserStatusEnabled {
-		return "", "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "账号已被禁用，无法登录后台系统")
+		return "", "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "账号已被禁用，无法登录")
 	}
 
 	// 更新最后登录时间
@@ -463,19 +476,34 @@ func (svc *UserServiceImpl) ListAllUsers(ctx context.Context, page, pageSize int
 
 // RegisterUser 用户注册
 func (svc *UserServiceImpl) RegisterUser(ctx context.Context, req dto.RegisterRequest) error {
+	// 验证令牌
+	phone, purpose, err := svc.validateVerifyToken(req.VerifyToken)
+	if err != nil {
+		return err
+	}
+	if purpose != "REGISTER" {
+		return utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌用途不匹配")
+	}
+	if phone != req.PhoneNumber {
+		return utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌与手机号不匹配")
+	}
+	// 消费令牌
+	svc.consumeVerifyToken(req.VerifyToken)
+
 	// 默认头像
 	avatar := "http://47.113.194.28:9000/news-platform/images/20 2508/1754126743005963551.webp"
 
+	// 密码哈希
 	hashedPassword, err := hashPassword(req.Password)
 	if err != nil {
 		return err
 	}
 
 	user := &model.User{
-		Username:  req.Username,
-		Password:  hashedPassword,
-		AvatarURL: avatar,
-		Role:      "USER",
+		PhoneNumber: req.PhoneNumber,
+		Password:    hashedPassword,
+		AvatarURL:   avatar,
+		Role:        "USER",
 	}
 
 	if err := svc.userRepo.Create(ctx, user); err != nil {
@@ -506,6 +534,15 @@ func (svc *UserServiceImpl) UpdateUserRole(ctx context.Context, userID int, req 
 
 // ChangePassword 修改密码
 func (svc *UserServiceImpl) ChangePassword(ctx context.Context, userID int, req dto.ChangePasswordRequest) error {
+	// 验证令牌
+	phone, purpose, err := svc.validateVerifyToken(req.VerifyToken)
+	if err != nil {
+		return err
+	}
+	if purpose != "CHANGE_PASSWORD" {
+		return utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌用途不匹配")
+	}
+	// 查询用户是否存在
 	user, err := svc.userRepo.GetUserByID(ctx, userID)
 	if err != nil {
 		return err
@@ -513,14 +550,12 @@ func (svc *UserServiceImpl) ChangePassword(ctx context.Context, userID int, req 
 	if user == nil {
 		return utils.NewBusinessError(utils.ErrCodeResourceNotFound, "用户不存在，请刷新后重试")
 	}
-
-	ok, err := verifyPassword(user.Password, req.OldPassword)
-	if err != nil {
-		return err
+	// 验证手机号是否匹配
+	if user.PhoneNumber != phone {
+		return utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌与当前用户手机号不匹配")
 	}
-	if !ok {
-		return utils.NewBusinessError(utils.ErrCodeAuthFailed, "旧密码错误")
-	}
+	// 消费令牌
+	svc.consumeVerifyToken(req.VerifyToken)
 
 	hashedPassword, err := hashPassword(req.NewPassword)
 	if err != nil {
@@ -575,4 +610,238 @@ func (svc *UserServiceImpl) UpdateUserStatus(ctx context.Context, userID int, Op
 		}
 	}
 	return nil
+}
+
+// SMSLogin 短信登录
+func (svc *UserServiceImpl) SMSLogin(ctx context.Context, req dto.SMSLoginRequest) (string, string, error) {
+	phone, purpose, err := svc.validateVerifyToken(req.VerifyToken)
+	if err != nil {
+		return "", "", err
+	}
+	if purpose != "LOGIN" {
+		return "", "", utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌用途不匹配")
+	}
+	if phone != req.PhoneNumber {
+		return "", "", utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌与手机号不匹配")
+	}
+
+	userInfo, err := svc.userRepo.GetPasswordByPhoneNumber(ctx, req.PhoneNumber)
+	if err != nil {
+		return "", "", err
+	}
+
+	if userInfo.Status != utils.UserStatusEnabled {
+		return "", "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "账号已被禁用，无法登录")
+	}
+
+	svc.consumeVerifyToken(req.VerifyToken)
+
+	updateFields := make(map[string]any)
+	updateFields["last_login_time"] = time.Now()
+	if err := svc.userRepo.Update(ctx, userInfo.UserID, updateFields); err != nil {
+		logrus.Errorf("更新用户[%d]最后登录时间失败: %v", userInfo.UserID, err)
+	}
+
+	token, err := svc.generateAccessToken(userInfo.UserID, userInfo.Role)
+	if err != nil {
+		return "", "", err
+	}
+
+	refreshToken, err := svc.generateRefreshToken(userInfo.UserID)
+	if err != nil {
+		return "", "", err
+	}
+
+	err = svc.userRepo.UpdateRefreshToken(ctx, userInfo.UserID, refreshToken)
+	if err != nil {
+		return "", "", err
+	}
+
+	return token, refreshToken, nil
+}
+
+// ResetPassword 重置密码
+func (svc *UserServiceImpl) ResetPassword(ctx context.Context, req dto.ResetPasswordRequest) error {
+	phone, purpose, err := svc.validateVerifyToken(req.VerifyToken)
+	if err != nil {
+		return err
+	}
+	if purpose != "RESET_PASSWORD" {
+		return utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌用途不匹配")
+	}
+	if phone != req.PhoneNumber {
+		return utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌与手机号不匹配")
+	}
+
+	user, err := svc.userRepo.GetByPhoneNumber(ctx, req.PhoneNumber)
+	if err != nil {
+		return err
+	}
+	if user == nil {
+		return utils.NewBusinessError(utils.ErrCodeResourceNotFound, "该手机号未注册")
+	}
+
+	svc.consumeVerifyToken(req.VerifyToken)
+
+	hashedPassword, err := hashPassword(req.NewPassword)
+	if err != nil {
+		return err
+	}
+
+	updateFields := make(map[string]interface{})
+	updateFields["password"] = hashedPassword
+	updateFields["update_user"] = user.UserID
+
+	if err := svc.userRepo.Update(ctx, user.UserID, updateFields); err != nil {
+		return err
+	}
+	return nil
+}
+
+// SendSMSVerifyCode 发送短信验证码
+func (svc *UserServiceImpl) SendSMSVerifyCode(ctx context.Context, req dto.SendSMSRequest) error {
+	rdb := rd.GetClient()
+	if rdb == nil {
+		return utils.NewSystemError(fmt.Errorf("Redis服务不可用"))
+	}
+
+	if req.Purpose == "REGISTER" {
+		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, req.PhoneNumber)
+		if err != nil {
+			return err
+		}
+		if existUser != nil {
+			return utils.NewBusinessError(utils.ErrCodeResourceExists, "该手机号已注册")
+		}
+	} else {
+		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, req.PhoneNumber)
+		if err != nil {
+			return err
+		}
+		if existUser == nil {
+			return utils.NewBusinessError(utils.ErrCodeResourceNotFound, "该手机号未注册")
+		}
+	}
+
+	sendLimitKey := fmt.Sprintf("sms:send:limit:%s", req.PhoneNumber)
+	if rdb.Exists(ctx, sendLimitKey).Val() > 0 {
+		return utils.NewBusinessError(utils.ErrCodeRateLimitExceeded, "发送过于频繁，请60秒后重试")
+	}
+
+	dailyKey := fmt.Sprintf("sms:send:daily:%s:%s", req.PhoneNumber, time.Now().Format("20060102"))
+	dailyCount := rdb.Incr(ctx, dailyKey).Val()
+	if dailyCount == 1 {
+		now := time.Now()
+		endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+		rdb.Expire(ctx, dailyKey, time.Until(endOfDay))
+	}
+	if dailyCount > int64(smsDailyMax) {
+		return utils.NewBusinessError(utils.ErrCodeRateLimitExceeded, "今日发送次数已达上限")
+	}
+
+	// TODO 测试环境使用固定验证码
+	var code string
+	if svc.cfg.App.Env != "production" {
+		code = "1234"
+	} else {
+		code = svc.smsSvc.GenerateVerifyCode()
+	}
+
+	codeKey := fmt.Sprintf("sms:code:%s", req.PhoneNumber)
+	err := rdb.Set(ctx, codeKey, code, smsCodeTTL).Err()
+	if err != nil {
+		return utils.NewSystemError(fmt.Errorf("存储验证码失败: %w", err))
+	}
+
+	errCountKey := fmt.Sprintf("sms:code:count:%s", req.PhoneNumber)
+	rdb.Del(ctx, errCountKey)
+
+	rdb.Set(ctx, sendLimitKey, "1", smsSendInterval)
+
+	if err := svc.smsSvc.SendVerifyCode(req.PhoneNumber, code); err != nil {
+		rdb.Del(ctx, codeKey)
+		rdb.Del(ctx, sendLimitKey)
+		rdb.Decr(ctx, dailyKey)
+		return utils.NewBusinessError(utils.ErrCodeDependencyServiceError, "短信发送失败，请稍后重试")
+	}
+
+	return nil
+}
+
+// VerifySMSCode 验证短信验证码
+func (svc *UserServiceImpl) VerifySMSCode(ctx context.Context, req dto.VerifySMSRequest) (string, error) {
+	rdb := rd.GetClient()
+	if rdb == nil {
+		return "", utils.NewSystemError(fmt.Errorf("Redis服务不可用"))
+	}
+
+	if req.Purpose == "LOGIN" {
+		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, req.PhoneNumber)
+		if err != nil {
+			return "", err
+		}
+		if existUser == nil {
+			return "", utils.NewBusinessError(utils.ErrCodeResourceNotFound, "该手机号未注册，请先注册")
+		}
+	}
+
+	codeKey := fmt.Sprintf("sms:code:%s", req.PhoneNumber)
+	storedCode, err := rdb.Get(ctx, codeKey).Result()
+	if err != nil {
+		return "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "验证码已过期，请重新获取")
+	}
+
+	errCountKey := fmt.Sprintf("sms:code:count:%s", req.PhoneNumber)
+	if req.Code != storedCode {
+		errCount := rdb.Incr(ctx, errCountKey).Val()
+		rdb.Expire(ctx, errCountKey, smsCodeTTL)
+		if errCount >= int64(smsCodeErrMax) {
+			rdb.Del(ctx, codeKey)
+			rdb.Del(ctx, errCountKey)
+			return "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "验证码错误次数过多，请重新获取")
+		}
+		return "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "验证码错误")
+	}
+
+	rdb.Del(ctx, codeKey)
+	rdb.Del(ctx, errCountKey)
+
+	verifyToken := uuid.New().String()
+	tokenKey := fmt.Sprintf("sms:token:%s", verifyToken)
+	tokenValue := fmt.Sprintf("%s:%s", req.PhoneNumber, req.Purpose)
+	if err := rdb.Set(ctx, tokenKey, tokenValue, smsTokenTTL).Err(); err != nil {
+		return "", utils.NewSystemError(fmt.Errorf("存储验证令牌失败: %w", err))
+	}
+
+	return verifyToken, nil
+}
+
+// validateVerifyToken 验证短信验证码
+func (svc *UserServiceImpl) validateVerifyToken(token string) (phone, purpose string, err error) {
+	rdb := rd.GetClient()
+	if rdb == nil {
+		return "", "", utils.NewSystemError(fmt.Errorf("Redis服务不可用"))
+	}
+
+	tokenKey := fmt.Sprintf("sms:token:%s", token)
+	val, err := rdb.Get(context.Background(), tokenKey).Result()
+	if err != nil {
+		return "", "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "验证令牌已过期，请重新验证")
+	}
+
+	parts := strings.SplitN(val, ":", 2)
+	if len(parts) != 2 {
+		return "", "", utils.NewBusinessError(utils.ErrCodeAuthTokenInvalid, "验证令牌无效")
+	}
+
+	return parts[0], parts[1], nil
+}
+
+// consumeVerifyToken 消费短信验证码
+func (svc *UserServiceImpl) consumeVerifyToken(token string) {
+	rdb := rd.GetClient()
+	if rdb != nil {
+		tokenKey := fmt.Sprintf("sms:token:%s", token)
+		rdb.Del(context.Background(), tokenKey)
+	}
 }
