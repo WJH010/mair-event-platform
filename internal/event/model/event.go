@@ -25,6 +25,8 @@ type Event struct {
 	CurrentRegistrants    int       `json:"current_registrants" gorm:"column:current_registrants;default:0"` // 当前报名人数
 	EventAddress          string    `json:"event_address" gorm:"type:varchar(255);column:event_address"`     // 活动地址
 	CoverImageURL         string    `json:"cover_image_url" gorm:"column:cover_image_url"`                   // 封面图片URL
+	NeedInviteCode        int       `json:"need_invite_code" gorm:"column:need_invite_code;default:2"`       // 是否需要邀请码 1：需要 2：不需要
+	InviteCode            string    `json:"invite_code" gorm:"column:invite_code"`                           // 邀请码
 	IsDeleted             string    `json:"is_deleted" gorm:"column:is_deleted;default:N"`                   // 软删除标志
 	CreateTime            time.Time `json:"create_time" gorm:"column:create_time;autoCreateTime"`            // 数据创建时间，自动生成
 	UpdateTime            time.Time `json:"update_time" gorm:"column:update_time;autoUpdateTime"`            // 数据最后更新时间，自动更新
@@ -33,6 +35,7 @@ type Event struct {
 	// 关联字段
 	Images   []dto.Image         `json:"images" gorm:"-"`    // 图片列表，存储图片ID和URL
 	UserInfo []dto.EventUserInfo `json:"user_info" gorm:"-"` // 所需用户信息字段列表
+	Fields   []dto.EventField    `json:"fields" gorm:"-"`    // 领域列表
 }
 
 // TableName 设置表名

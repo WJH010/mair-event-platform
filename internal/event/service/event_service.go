@@ -10,11 +10,22 @@ import (
 	filerepo "event-platform/internal/file/repository"
 	userrepo "event-platform/internal/user/repository"
 	"event-platform/internal/utils"
+	"math/rand"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 )
+
+// generateInviteCode 生成4位由大写字母和数字组成的随机邀请码
+func generateInviteCode() string {
+	const charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	code := make([]byte, 4)
+	for i := range code {
+		code[i] = charset[rand.Intn(len(charset))]
+	}
+	return string(code)
+}
 
 // EventService 定义事件服务接口，提供事件相关的业务逻辑方法
 type EventService interface {
@@ -25,15 +36,15 @@ type EventService interface {
 	// GetEventDetail 获取活动详情
 	GetEventDetail(ctx context.Context, eventID int) (*model.Event, error)
 	// RegistrationEvent 活动报名
-	RegistrationEvent(ctx context.Context, eventID int, userID int) error
+	RegistrationEvent(ctx context.Context, eventID int, userID int, inviteCode string) error
 	// CancelRegistrationEvent 取消活动报名
 	CancelRegistrationEvent(ctx context.Context, eventID int, userID int) error
 	// IsUserRegistered 查询用户是否已报名活动
 	IsUserRegistered(ctx context.Context, eventID int, userID int) (bool, error)
 	// ListUserRegisteredEvents 获取用户已报名的活动列表
-	ListUserRegisteredEvents(ctx context.Context, page, pageSize int, userID int, eventStatus string) ([]*model.Event, int64, error)
+	ListUserRegisteredEvents(ctx context.Context, page, pageSize int, userID int, eventStatus string) ([]*dto.EventListResponse, int64, error)
 	// CreateEvent 创建活动
-	CreateEvent(ctx context.Context, event *model.Event, imageIDList []int, userFieldIDList []int) error
+	CreateEvent(ctx context.Context, event *model.Event, imageIDList []int, userFieldIDList []int, fieldIDList []int) error
 	// UpdateEvent 更新活动
 	UpdateEvent(ctx context.Context, eventID int, req dto.UpdateEventRequest, userID int) error
 	// DeleteEvent 删除活动
@@ -96,6 +107,26 @@ func (svc *EventServiceImpl) ListEvent(ctx context.Context, page, pageSize int, 
 			e.RemainingQuota = e.MaxRegistrants - e.CurrentRegistrants
 		}
 	}
+
+	// 批量查询活动领域信息
+	if len(events) > 0 {
+		eventIDs := make([]int, len(events))
+		for i, e := range events {
+			eventIDs[i] = e.ID
+		}
+		fieldsMap, err := svc.eventRepo.GetEventFieldsByEventIDs(ctx, eventIDs)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, e := range events {
+			if fields, ok := fieldsMap[e.ID]; ok {
+				e.Fields = fields
+			} else {
+				e.Fields = []dto.EventField{}
+			}
+		}
+	}
+
 	return events, total, nil
 }
 
@@ -132,11 +163,21 @@ func (svc *EventServiceImpl) GetEventDetail(ctx context.Context, eventID int) (*
 		})
 	}
 
+	// 获取关联领域列表
+	fields, err := svc.eventRepo.GetEventFieldsByEventID(ctx, eventID)
+	if err != nil {
+		return nil, err
+	}
+	if fields == nil {
+		fields = []dto.EventField{}
+	}
+	event.Fields = fields
+
 	return event, nil
 }
 
 // RegistrationEvent 活动报名实现
-func (svc *EventServiceImpl) RegistrationEvent(ctx context.Context, eventID int, userID int) error {
+func (svc *EventServiceImpl) RegistrationEvent(ctx context.Context, eventID int, userID int, inviteCode string) error {
 	var mapping *model.EventUserMapping
 	// 检查活动是否存在（本地缓存优先，内置 singleflight 防击穿）
 	event, err := svc.eventCache.GetOrLoad(eventID, func() (*model.Event, error) {
@@ -152,6 +193,16 @@ func (svc *EventServiceImpl) RegistrationEvent(ctx context.Context, eventID int,
 	// 检查活动是否在报名时间内
 	if event.RegistrationStartTime.After(time.Now()) || event.RegistrationEndTime.Before(time.Now()) {
 		return utils.NewBusinessError(utils.ErrCodeBusinessLogicError, "未在活动报名时间内")
+	}
+
+	// 检查邀请码
+	if event.NeedInviteCode == 1 {
+		if inviteCode == "" {
+			return utils.NewBusinessError(utils.ErrCodeBusinessLogicError, "该活动需要邀请码")
+		}
+		if inviteCode != event.InviteCode {
+			return utils.NewBusinessError(utils.ErrCodeBusinessLogicError, "邀请码错误")
+		}
 	}
 
 	// 检查活动是否已满员
@@ -228,11 +279,11 @@ func (svc *EventServiceImpl) RegistrationEvent(ctx context.Context, eventID int,
 			registration.Position = user.Position
 		}
 		if field.Code == "industry" {
-			if user.Industry == "" {
+			if user.IndustryID == 0 {
 				svc.stockSvc.Incr(ctx, eventID)
 				return utils.NewBusinessError(utils.ErrCodeBusinessLogicError, "请填写行业")
 			}
-			registration.Industry = user.Industry
+			registration.IndustryID = user.IndustryID
 		}
 	}
 
@@ -351,12 +402,57 @@ func (svc *EventServiceImpl) IsUserRegistered(ctx context.Context, eventID int, 
 }
 
 // ListUserRegisteredEvents 获取用户已报名的活动列表
-func (svc *EventServiceImpl) ListUserRegisteredEvents(ctx context.Context, page, pageSize int, userID int, eventStatus string) ([]*model.Event, int64, error) {
-	return svc.eventRepo.ListUserRegisteredEvents(ctx, page, pageSize, userID, eventStatus)
+func (svc *EventServiceImpl) ListUserRegisteredEvents(ctx context.Context, page, pageSize int, userID int, eventStatus string) ([]*dto.EventListResponse, int64, error) {
+	events, total, err := svc.eventRepo.ListUserRegisteredEvents(ctx, page, pageSize, userID, eventStatus)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	results := make([]*dto.EventListResponse, 0, len(events))
+	for _, ev := range events {
+		remainingQuota := -1
+		if ev.MaxRegistrants > 0 {
+			remainingQuota = ev.MaxRegistrants - ev.CurrentRegistrants
+		}
+		results = append(results, &dto.EventListResponse{
+			ID:                    ev.ID,
+			Title:                 ev.Title,
+			EventStartTime:        ev.EventStartTime,
+			EventEndTime:          ev.EventEndTime,
+			RegistrationStartTime: ev.RegistrationStartTime,
+			RegistrationEndTime:   ev.RegistrationEndTime,
+			MaxRegistrants:        ev.MaxRegistrants,
+			CurrentRegistrants:    ev.CurrentRegistrants,
+			RemainingQuota:        remainingQuota,
+			EventAddress:          ev.EventAddress,
+			CoverImageURL:         ev.CoverImageURL,
+		})
+	}
+
+	// 批量查询活动领域信息
+	if len(results) > 0 {
+		eventIDs := make([]int, len(results))
+		for i, e := range results {
+			eventIDs[i] = e.ID
+		}
+		fieldsMap, err := svc.eventRepo.GetEventFieldsByEventIDs(ctx, eventIDs)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, e := range results {
+			if fields, ok := fieldsMap[e.ID]; ok {
+				e.Fields = fields
+			} else {
+				e.Fields = []dto.EventField{}
+			}
+		}
+	}
+
+	return results, total, nil
 }
 
 // CreateEvent 创建活动
-func (svc *EventServiceImpl) CreateEvent(ctx context.Context, event *model.Event, imageIDList []int, userInfoIDList []int) error {
+func (svc *EventServiceImpl) CreateEvent(ctx context.Context, event *model.Event, imageIDList []int, userInfoIDList []int, fieldIDList []int) error {
 	// 检查是否有重复的活动标题
 	existingEvent, err := svc.eventRepo.GetEventByTitle(ctx, event.Title)
 	if err != nil {
@@ -372,6 +468,10 @@ func (svc *EventServiceImpl) CreateEvent(ctx context.Context, event *model.Event
 	}
 	if event.RegistrationStartTime.After(event.RegistrationEndTime) {
 		return utils.NewBusinessError(utils.ErrCodeBusinessLogicError, "报名开始时间不能晚于结束时间")
+	}
+	// 需要邀请码时自动生成
+	if event.NeedInviteCode == 1 {
+		event.InviteCode = generateInviteCode()
 	}
 
 	// 使用 GORM 函数式事务
@@ -417,6 +517,22 @@ func (svc *EventServiceImpl) CreateEvent(ctx context.Context, event *model.Event
 				})
 			}
 			if err := svc.eventRepo.CreateEventUserInfoMapping(ctx, tx, mappings); err != nil {
+				return err
+			}
+		}
+
+		// 创建活动领域映射
+		if len(fieldIDList) > 0 {
+			fieldMappings := make([]*model.EventFieldMapping, 0, len(fieldIDList))
+			for _, fieldID := range fieldIDList {
+				fieldMappings = append(fieldMappings, &model.EventFieldMapping{
+					EventID:    event.ID,
+					FieldID:    fieldID,
+					CreateUser: event.CreateUser,
+					UpdateUser: event.UpdateUser,
+				})
+			}
+			if err := svc.eventRepo.BatchCreateEventFieldMappings(ctx, tx, fieldMappings); err != nil {
 				return err
 			}
 		}
@@ -469,7 +585,12 @@ func (svc *EventServiceImpl) UpdateEvent(ctx context.Context, eventID int, req d
 		imageIDList = *req.ImageIDList
 	}
 
-	if len(updateFields) == 0 && len(imageIDList) == 0 {
+	var fieldIDList []int
+	if req.FieldIDList != nil {
+		fieldIDList = *req.FieldIDList
+	}
+
+	if len(updateFields) == 0 && len(imageIDList) == 0 && fieldIDList == nil {
 		return nil // 无更新内容
 	}
 
@@ -487,6 +608,27 @@ func (svc *EventServiceImpl) UpdateEvent(ctx context.Context, eventID int, req d
 		if len(imageIDList) > 0 {
 			if err := svc.fileRepo.BatchUpdateImageBizID(ctx, tx, imageIDList, eventID, utils.TypeEvent); err != nil {
 				return err
+			}
+		}
+
+		// 如果有领域更新，先删除旧的领域映射，再批量创建新的
+		if fieldIDList != nil {
+			if err := svc.eventRepo.DeleteEventFieldMappings(ctx, tx, eventID); err != nil {
+				return err
+			}
+			if len(fieldIDList) > 0 {
+				fieldMappings := make([]*model.EventFieldMapping, 0, len(fieldIDList))
+				for _, fieldID := range fieldIDList {
+					fieldMappings = append(fieldMappings, &model.EventFieldMapping{
+						EventID:    eventID,
+						FieldID:    fieldID,
+						CreateUser: userID,
+						UpdateUser: userID,
+					})
+				}
+				if err := svc.eventRepo.BatchCreateEventFieldMappings(ctx, tx, fieldMappings); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -582,6 +724,15 @@ func makeUpdateFields(event *model.Event, req dto.UpdateEventRequest) (map[strin
 			return nil, utils.NewBusinessError(utils.ErrCodeBusinessLogicError, "最大报名人数不能小于当前已报名人数")
 		}
 		updateFields["max_registrants"] = *req.MaxRegistrants
+	}
+	if req.NeedInviteCode != nil {
+		updateFields["need_invite_code"] = *req.NeedInviteCode
+		if *req.NeedInviteCode == 1 {
+			updateFields["invite_code"] = generateInviteCode()
+		}
+		if *req.NeedInviteCode == 2 {
+			updateFields["invite_code"] = ""
+		}
 	}
 
 	return updateFields, nil

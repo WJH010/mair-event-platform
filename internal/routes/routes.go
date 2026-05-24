@@ -12,6 +12,10 @@ import (
 	userrepo "event-platform/internal/user/repository"
 	usersvc "event-platform/internal/user/service"
 
+	industryctr "event-platform/internal/industry/controller"
+	industryrepo "event-platform/internal/industry/repository"
+	industrysvc "event-platform/internal/industry/service"
+
 	filectr "event-platform/internal/file/controller"
 	filerepo "event-platform/internal/file/repository"
 	filesvc "event-platform/internal/file/service"
@@ -41,7 +45,7 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 	// 初始化仓库
 	fileRepo := filerepo.NewFileRepository(db)
 	userRepo := userrepo.NewUserRepository(db)
-	industryRepo := userrepo.NewIndustryRepository(db)
+	industryRepo := industryrepo.NewIndustryRepository(db)
 	msgRepo := msgrepo.NewMessageRepository(db)
 	eventRepo := eventrepo.NewEventRepository(db)
 	eventUserInfoRepo := eventrepo.NewEventUserInfoRepository(db)
@@ -54,7 +58,7 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 	msgService := msgsvc.NewMessageService(msgRepo, msgGroupRepo)
 	msgGroupService := msgsvc.NewMsgGroupService(msgGroupRepo, msgRepo)
 	userService := usersvc.NewUserService(userRepo, msgGroupService, cfg)
-	industryService := usersvc.NewIndustryService(industryRepo)
+	industryService := industrysvc.NewIndustryService(industryRepo)
 	eventService := eventsvc.NewEventService(eventRepo, eventUserInfoRepo, userRepo, fileRepo, eventstock.NewStockService(), cache.New[int, *eventmodel.Event](3*time.Second))
 	eventUserInfoService := eventsvc.NewEventUserInfoService(eventUserInfoRepo)
 	userRoleService := usersvc.NewUserRoleService(userRoleRepo)
@@ -63,7 +67,7 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 	// 初始化控制器
 	fileController := filectr.NewFileController(fileService)
 	userController := userctr.NewUserController(userService)
-	industryController := userctr.NewIndustryController(industryService)
+	industryController := industryctr.NewIndustryController(industryService)
 	msgController := msgctr.NewMessageController(msgService)
 	eventController := eventctr.NewEventController(eventService)
 	eventUserInfoController := eventctr.NewEventUserInfoController(eventUserInfoService)
@@ -90,7 +94,6 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 				authUsers.GET("/me", userController.GetUserInfo)
 				authUsers.PUT("/me", userController.UpdateUserInfo)
 				authUsers.PATCH("/me/password", userController.ChangePassword)
-				authUsers.GET("/me/registrations", eventController.ListUserRegisteredEvents)
 
 				adminUsers := authUsers.Group("")
 				adminUsers.Use(middleware.RoleMiddleware(utils.RoleAdmin))
@@ -103,21 +106,6 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 				superAdminUsers.Use(middleware.RoleMiddleware(utils.RoleSuperAdmin))
 				{
 					superAdminUsers.PATCH("/:id/role", userController.UpdateUserRole)
-				}
-			}
-		}
-
-		industries := api.Group("/industries")
-		{
-			industries.GET("", industryController.ListIndustries)
-			authIndustries := industries.Group("")
-			authIndustries.Use(middleware.AuthMiddleware(cfg))
-			{
-				adminIndustries := authIndustries.Group("")
-				adminIndustries.Use(middleware.RoleMiddleware(utils.RoleAdmin))
-				{
-					adminIndustries.POST("", industryController.CreateIndustry)
-					adminIndustries.PUT("/:id", industryController.UpdateIndustry)
 				}
 			}
 		}
@@ -180,6 +168,7 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 			authEvents := events.Group("")
 			authEvents.Use(middleware.AuthMiddleware(cfg))
 			{
+				authEvents.GET("/me/registrations", eventController.ListUserRegisteredEvents)
 				authEvents.POST("/:id/registrations", eventController.RegistrationEvent)
 				authEvents.GET("/:id/registrations/me", eventController.IsUserRegistered)
 				authEvents.DELETE("/:id/registrations/me", eventController.CancelRegistrationEvent)
@@ -217,6 +206,23 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 					adminFields.PUT("/:id", fieldController.UpdateField)
 					adminFields.DELETE("/:id", fieldController.DeleteField)
 					adminFields.PATCH("/:id/status", fieldController.UpdateFieldStatus)
+				}
+			}
+		}
+
+		industries := api.Group("/industries")
+		{
+			industries.GET("", industryController.ListIndustries)
+			authIndustries := industries.Group("")
+			authIndustries.Use(middleware.AuthMiddleware(cfg))
+			{
+				adminIndustries := authIndustries.Group("")
+				adminIndustries.Use(middleware.RoleMiddleware(utils.RoleAdmin))
+				{
+					adminIndustries.POST("", industryController.CreateIndustry)
+					adminIndustries.PUT("/:id", industryController.UpdateIndustry)
+					adminIndustries.DELETE("/:id", industryController.DeleteIndustry)
+					adminIndustries.PATCH("/:id/status", industryController.UpdateIndustryStatus)
 				}
 			}
 		}

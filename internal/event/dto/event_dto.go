@@ -29,6 +29,8 @@ type CreateEventRequest struct {
 	CoverImageURL         string `json:"cover_image_url" binding:"omitempty,url"`                // 封面图片URL
 	ImageIDList           []int  `json:"image_id_list" binding:"omitempty,dive,min=1"`           // 图片ID列表
 	UserInfoIDList        []int  `json:"user_info_id_list" binding:"omitempty,dive,min=1"`       // 所需用户信息ID列表
+	FieldIDList           []int  `json:"field_id_list" binding:"omitempty,dive,min=1"`           // 领域ID列表
+	NeedInviteCode        int    `json:"need_invite_code" binding:"omitempty,oneof=1 2"`         // 是否需要邀请码 1：需要 2：不需要
 }
 
 // UpdateEventRequest 更新活动请求参数
@@ -41,27 +43,41 @@ type UpdateEventRequest struct {
 	RegistrationEndTime   *string `json:"registration_end_time" binding:"omitempty,non_empty_string,time_format"`   // 活动报名截止时间
 	MaxRegistrants        *int    `json:"max_registrants" binding:"omitempty,gte=0"`                                // 最大报名人数，0表示不限
 	EventAddress          *string `json:"event_address" binding:"omitempty,non_empty_string,max=255"`               // 活动地址
-	CoverImageURL         *string `json:"cover_image_url" binding:"omitempty,url"`                                  // 封面图片URL
-	GroupID               *int    `json:"group_id" binding:"omitempty,numeric"`                                     // 关联的消息群组ID
+	CoverImageURL         *string `json:"cover_image_url" binding:"omitempty,url"`                                  // 关联的消息群组ID
 	ImageIDList           *[]int  `json:"image_id_list" binding:"omitempty,dive,min=1"`                             // 图片ID列表
+	FieldIDList           *[]int  `json:"field_id_list" binding:"omitempty,dive,min=1"`                             // 领域ID列表
+	NeedInviteCode        *int    `json:"need_invite_code" binding:"omitempty,oneof=1 2"`                           // 是否需要邀请码 1：需要 2：不需要
+}
+
+type RegistrationEventRequest struct {
+	InviteCode string `json:"invite_code" binding:"omitempty"` // 邀请码
+}
+
+// EventField 活动关联领域结构体
+type EventField struct {
+	FieldID   int    `json:"field_id"`
+	FieldCode string `json:"field_code"`
+	FieldName string `json:"field_name"`
 }
 
 // EventListResponse 活动列表响应结构体
 type EventListResponse struct {
-	ID                    int       `json:"id"`                      // 活动ID
-	Title                 string    `json:"title"`                   // 活动标题
-	EventStartTime        time.Time `json:"event_start_time"`        // 活动开始时间
-	EventEndTime          time.Time `json:"event_end_time"`          // 活动结束时间
-	RegistrationStartTime time.Time `json:"registration_start_time"` // 活动报名开始时间
-	RegistrationEndTime   time.Time `json:"registration_end_time"`   // 活动报名截止时间
-	MaxRegistrants        int       `json:"max_registrants"`         // 最大报名人数
-	CurrentRegistrants    int       `json:"current_registrants"`     // 当前已报名人数
-	RemainingQuota        int       `json:"remaining_quota"`         // 剩余名额
-	EventAddress          string    `json:"event_address"`           // 活动地址
-	Status                string    `json:"status"`                  // 活动状态
-	CoverImageURL         string    `json:"cover_image_url"`         // 封面图片URL
-	MemberCount           int       `json:"member_count"`            // 报名人数
-	GroupID               int       `json:"group_id"`                // 关联的消息群组ID
+	ID                    int          `json:"id"`                      // 活动ID
+	Title                 string       `json:"title"`                   // 活动标题
+	EventStartTime        time.Time    `json:"event_start_time"`        // 活动开始时间
+	EventEndTime          time.Time    `json:"event_end_time"`          // 活动结束时间
+	RegistrationStartTime time.Time    `json:"registration_start_time"` // 活动报名开始时间
+	RegistrationEndTime   time.Time    `json:"registration_end_time"`   // 活动报名截止时间
+	MaxRegistrants        int          `json:"max_registrants"`         // 最大报名人数
+	CurrentRegistrants    int          `json:"current_registrants"`     // 当前已报名人数
+	RemainingQuota        int          `json:"remaining_quota"`         // 剩余名额
+	EventAddress          string       `json:"event_address"`           // 活动地址
+	Status                string       `json:"status"`                  // 活动状态
+	CoverImageURL         string       `json:"cover_image_url"`         // 封面图片URL
+	MemberCount           int          `json:"member_count"`            // 报名人数
+	NeedInviteCode        int          `json:"need_invite_code"`        // 是否需要邀请码 1：需要 2：不需要
+	InviteCode            string       `json:"invite_code,omitempty"`   // 邀请码（管理员可见）
+	Fields                []EventField `json:"fields"`                  // 领域列表
 }
 
 // Image 关联图片列表结构体
@@ -91,9 +107,11 @@ type EventDetailResponse struct {
 	EventAddress          string          `json:"event_address"`           // 活动地址
 	Status                string          `json:"status"`                  // 活动状态
 	CoverImageURL         string          `json:"cover_image_url"`         // 封面图片URL
-	GroupID               int             `json:"group_id"`                // 关联的消息群组ID
+	NeedInviteCode        int             `json:"need_invite_code"`        // 是否需要邀请码 1：需要 2：不需要
+	InviteCode            string          `json:"invite_code,omitempty"`   // 邀请码（管理员可见）
 	Images                []Image         `json:"images"`                  // 图片列表
 	UserInfo              []EventUserInfo `json:"user_info"`               // 用户信息字段列表
+	Fields                []EventField    `json:"fields"`                  // 领域列表
 }
 
 // ListEventRegUserResponse 活动报名列表查询请求参数
@@ -101,7 +119,7 @@ type ListEventRegUserResponse struct {
 	Name         string `json:"name"`
 	PhoneNumber  string `json:"phone_number"`
 	Email        string `json:"email"`
-	Industry     string `json:"industry"`
+	IndustryID   int    `json:"industry_id"`
 	IndustryName string `json:"industry_name"`
 	Position     string `json:"position"`
 	Unit         string `json:"unit"`

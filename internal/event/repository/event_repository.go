@@ -58,6 +58,14 @@ type EventRepository interface {
 	IncrementRegistrants(ctx context.Context, tx *gorm.DB, eventID int) error
 	// DecrementRegistrants 原子递减当前报名人数
 	DecrementRegistrants(ctx context.Context, tx *gorm.DB, eventID int) error
+	// BatchCreateEventFieldMappings 批量创建活动领域映射
+	BatchCreateEventFieldMappings(ctx context.Context, tx *gorm.DB, mappings []*model.EventFieldMapping) error
+	// DeleteEventFieldMappings 删除活动的所有领域映射
+	DeleteEventFieldMappings(ctx context.Context, tx *gorm.DB, eventID int) error
+	// GetEventFieldsByEventID 根据活动ID获取领域列表（含领域名称）
+	GetEventFieldsByEventID(ctx context.Context, eventID int) ([]dto.EventField, error)
+	// GetEventFieldsByEventIDs 根据多个活动ID获取领域列表（含领域名称），返回 map[eventID][]EventField
+	GetEventFieldsByEventIDs(ctx context.Context, eventIDs []int) (map[int][]dto.EventField, error)
 }
 
 // EventRepositoryImpl 实现接口的具体结构体
@@ -344,8 +352,8 @@ func (repo *EventRepositoryImpl) ListEventRegisteredUser(ctx context.Context, pa
 
 	query := repo.db.WithContext(ctx).
 		Table("event_registration_info u").
-		Select("u.name, u.phone_number, u.email, u.unit, u.department, u.position, u.industry, i.industry_name").
-		Joins("LEFT JOIN industries i ON u.industry = i.industry_code").
+		Select("u.name, u.phone_number, u.email, u.unit, u.department, u.position, u.industry_id, i.industry_name").
+		Joins("LEFT JOIN industries i ON u.industry_id = i.id").
 		Where("u.event_id = ?", eventID)
 
 	// 计算总数
@@ -503,6 +511,82 @@ func (repo *EventRepositoryImpl) IncrementRegistrants(ctx context.Context, tx *g
 		return utils.NewBusinessError(utils.ErrCodeResourceQuotaExceeded, "报名人数已满")
 	}
 	return nil
+}
+
+// BatchCreateEventFieldMappings 批量创建活动领域映射
+func (repo *EventRepositoryImpl) BatchCreateEventFieldMappings(ctx context.Context, tx *gorm.DB, mappings []*model.EventFieldMapping) error {
+	if len(mappings) == 0 {
+		return nil
+	}
+	if tx == nil {
+		tx = repo.db
+	}
+	if err := tx.WithContext(ctx).Create(&mappings).Error; err != nil {
+		exist, _, _ := utils.IsUniqueConstraintError(err)
+		if exist {
+			return utils.NewBusinessError(utils.ErrCodeResourceExists, "已添加该领域，请勿重复添加")
+		}
+		return utils.NewSystemError(fmt.Errorf("批量创建活动领域映射失败: %w", err))
+	}
+	return nil
+}
+
+// DeleteEventFieldMappings 删除活动的所有领域映射
+func (repo *EventRepositoryImpl) DeleteEventFieldMappings(ctx context.Context, tx *gorm.DB, eventID int) error {
+	if tx == nil {
+		tx = repo.db
+	}
+	if err := tx.WithContext(ctx).Where("event_id = ?", eventID).Delete(&model.EventFieldMapping{}).Error; err != nil {
+		return utils.NewSystemError(fmt.Errorf("删除活动领域映射失败: %w", err))
+	}
+	return nil
+}
+
+// GetEventFieldsByEventID 根据活动ID获取领域列表（含领域名称）
+func (repo *EventRepositoryImpl) GetEventFieldsByEventID(ctx context.Context, eventID int) ([]dto.EventField, error) {
+	var fields []dto.EventField
+	err := repo.db.WithContext(ctx).
+		Table("event_field_mappings efm").
+		Select("efm.field_id, f.field_code, f.field_name").
+		Joins("JOIN field f ON efm.field_id = f.id").
+		Where("efm.event_id = ?", eventID).
+		Find(&fields).Error
+	if err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("查询活动领域信息失败: %w", err))
+	}
+	return fields, nil
+}
+
+// GetEventFieldsByEventIDs 根据多个活动ID获取领域列表（含领域名称），返回 map[eventID][]EventField
+func (repo *EventRepositoryImpl) GetEventFieldsByEventIDs(ctx context.Context, eventIDs []int) (map[int][]dto.EventField, error) {
+	type eventFieldRow struct {
+		EventID   int    `gorm:"column:event_id"`
+		FieldID   int    `gorm:"column:field_id"`
+		FieldCode string `gorm:"column:field_code"`
+		FieldName string `gorm:"column:field_name"`
+	}
+	var rows []eventFieldRow
+	if len(eventIDs) == 0 {
+		return make(map[int][]dto.EventField), nil
+	}
+	err := repo.db.WithContext(ctx).
+		Table("event_field_mappings efm").
+		Select("efm.event_id, efm.field_id, f.field_code, f.field_name").
+		Joins("JOIN field f ON efm.field_id = f.id").
+		Where("efm.event_id IN ?", eventIDs).
+		Find(&rows).Error
+	if err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("批量查询活动领域信息失败: %w", err))
+	}
+	result := make(map[int][]dto.EventField)
+	for _, row := range rows {
+		result[row.EventID] = append(result[row.EventID], dto.EventField{
+			FieldID:   row.FieldID,
+			FieldCode: row.FieldCode,
+			FieldName: row.FieldName,
+		})
+	}
+	return result, nil
 }
 
 // DecrementRegistrants 原子递减当前报名人数

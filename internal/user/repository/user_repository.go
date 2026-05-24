@@ -16,7 +16,7 @@ type UserRepository interface {
 	// Create 创建新用户
 	Create(ctx context.Context, user *model.User) error
 	// Update 更新用户信息
-	Update(ctx context.Context, userID int, updateFields map[string]any) error
+	Update(ctx context.Context, tx *gorm.DB, userID int, updateFields map[string]any) error
 	// GetUserInfoByID 根据用户ID获取用户信息
 	GetUserInfoByID(ctx context.Context, userID int) (*dto.UserInfoResponse, error)
 	// ListAllUsers 列出所有用户接口（管理员权限）
@@ -31,6 +31,16 @@ type UserRepository interface {
 	GetPasswordByPhoneNumber(ctx context.Context, phoneNumber string) (*model.User, error)
 	// GetByPhoneNumber 根据手机号查询用户是否存在
 	GetByPhoneNumber(ctx context.Context, phoneNumber string) (*model.User, error)
+	// GetUserFieldMappings 根据用户ID获取领域映射列表
+	GetUserFieldMappings(ctx context.Context, userID int) ([]*model.UserFieldMapping, error)
+	// BatchCreateUserFieldMappings 批量创建用户领域映射
+	BatchCreateUserFieldMappings(ctx context.Context, tx *gorm.DB, mappings []*model.UserFieldMapping) error
+	// DeleteUserFieldMappings 删除用户的所有领域映射
+	DeleteUserFieldMappings(ctx context.Context, tx *gorm.DB, userID int) error
+	// GetUserFieldsByUserID 根据用户ID获取领域列表（含领域名称）
+	GetUserFieldsByUserID(ctx context.Context, userID int) ([]dto.FieldItem, error)
+	// GetUserFieldsByUserIDs 根据多个用户ID获取领域列表（含领域名称）
+	GetUserFieldsByUserIDs(ctx context.Context, userIDs []int) (map[int][]dto.FieldItem, error)
 }
 
 // UserRepositoryImpl 用户仓库实现
@@ -77,8 +87,8 @@ func (repo *UserRepositoryImpl) GetUserInfoByID(ctx context.Context, userID int)
 					'女'
 					ELSE
 					'未知'
-				END AS gender,u.country_code, u.phone_number, u.email, u.unit, u.department, u.position, u.industry, i.industry_name, u.role, ur.role_name, u.status`).
-		Joins("LEFT JOIN industries i ON u.industry = i.industry_code").
+				END AS gender,u.country_code, u.phone_number, u.email, u.unit, u.department, u.position, u.industry_id, i.industry_name, u.role, ur.role_name, u.status`).
+			Joins("LEFT JOIN industries i ON u.industry_id = i.id").
 		Joins("LEFT JOIN user_role ur ON ur.role_code = u.role").
 		Where("user_id = ?", userID).First(&user)
 
@@ -92,9 +102,12 @@ func (repo *UserRepositoryImpl) GetUserInfoByID(ctx context.Context, userID int)
 }
 
 // Update 更新用户信息
-func (repo *UserRepositoryImpl) Update(ctx context.Context, userID int, updateFields map[string]any) error {
+func (repo *UserRepositoryImpl) Update(ctx context.Context, tx *gorm.DB, userID int, updateFields map[string]any) error {
+	if tx == nil {
+		tx = repo.db
+	}
 
-	result := repo.db.WithContext(ctx).Model(&model.User{}).
+	result := tx.WithContext(ctx).Model(&model.User{}).
 		Where("user_id = ?", userID).
 		Updates(updateFields)
 
@@ -122,7 +135,7 @@ func (repo *UserRepositoryImpl) ListAllUsers(ctx context.Context, page, pageSize
 					ELSE
 					'未知'
 				END AS gender,
-				u.country_code, u.phone_number, u.email, u.unit, u.department, u.position, u.industry, i.industry_name, ur.role_name,
+				u.country_code, u.phone_number, u.email, u.unit, u.department, u.position, u.industry_id, i.industry_name, ur.role_name,
 				u.status,
 				CASE
 					u.status
@@ -132,7 +145,7 @@ func (repo *UserRepositoryImpl) ListAllUsers(ctx context.Context, page, pageSize
 					"已禁用"
 				END AS user_status
 				`).
-		Joins("LEFT JOIN industries i ON u.industry = i.industry_code").
+			Joins("LEFT JOIN industries i ON u.industry_id = i.id").
 		Joins("LEFT JOIN user_role ur ON ur.role_code = u.role")
 
 	// 拼接查询条件
@@ -151,8 +164,8 @@ func (repo *UserRepositoryImpl) ListAllUsers(ctx context.Context, page, pageSize
 	if req.Position != "" {
 		query = query.Where("u.position LIKE ?", "%"+req.Position+"%")
 	}
-	if req.Industry != "" {
-		query = query.Where("u.industry = ?", req.Industry)
+	if req.IndustryID != "" {
+		query = query.Where("u.industry_id = ?", req.IndustryID)
 	}
 	if req.Role != "" {
 		query = query.Where("u.role = ?", req.Role)
@@ -228,4 +241,99 @@ func (repo *UserRepositoryImpl) GetByPhoneNumber(ctx context.Context, phoneNumbe
 		return nil, utils.NewSystemError(fmt.Errorf("查询用户失败: %w", err))
 	}
 	return &user, nil
+}
+
+// GetUserFieldMappings 根据用户ID获取领域映射列表
+func (repo *UserRepositoryImpl) GetUserFieldMappings(ctx context.Context, userID int) ([]*model.UserFieldMapping, error) {
+	var mappings []*model.UserFieldMapping
+	if err := repo.db.WithContext(ctx).Where("user_id = ?", userID).Find(&mappings).Error; err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("查询用户领域映射失败: %w", err))
+	}
+	return mappings, nil
+}
+
+// BatchCreateUserFieldMappings 批量创建用户领域映射
+func (repo *UserRepositoryImpl) BatchCreateUserFieldMappings(ctx context.Context, tx *gorm.DB, mappings []*model.UserFieldMapping) error {
+	if len(mappings) == 0 {
+		return nil
+	}
+	if tx == nil {
+		tx = repo.db
+	}
+	if err := tx.WithContext(ctx).Create(&mappings).Error; err != nil {
+		exist, _, _ := utils.IsUniqueConstraintError(err)
+		if exist {
+			return utils.NewBusinessError(utils.ErrCodeResourceExists, "已添加该领域，请勿重复添加")
+		}
+		return utils.NewSystemError(fmt.Errorf("批量创建用户领域映射失败: %w", err))
+	}
+	return nil
+}
+
+// DeleteUserFieldMappings 删除用户的所有领域映射
+func (repo *UserRepositoryImpl) DeleteUserFieldMappings(ctx context.Context, tx *gorm.DB, userID int) error {
+	if tx == nil {
+		tx = repo.db
+	}
+	if err := tx.WithContext(ctx).Where("user_id = ?", userID).Delete(&model.UserFieldMapping{}).Error; err != nil {
+		return utils.NewSystemError(fmt.Errorf("删除用户领域映射失败: %w", err))
+	}
+	return nil
+}
+
+// GetUserFieldMappingsByUserIDs 根据多个用户ID获取领域映射列表
+func (repo *UserRepositoryImpl) GetUserFieldMappingsByUserIDs(ctx context.Context, userIDs []int) ([]*model.UserFieldMapping, error) {
+	var mappings []*model.UserFieldMapping
+	if len(userIDs) == 0 {
+		return mappings, nil
+	}
+	if err := repo.db.WithContext(ctx).Where("user_id IN ?", userIDs).Find(&mappings).Error; err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("批量查询用户领域映射失败: %w", err))
+	}
+	return mappings, nil
+}
+
+// GetUserFieldsByUserID 根据用户ID获取领域列表（含领域名称）
+func (repo *UserRepositoryImpl) GetUserFieldsByUserID(ctx context.Context, userID int) ([]dto.FieldItem, error) {
+	var fields []dto.FieldItem
+	err := repo.db.WithContext(ctx).
+		Table("user_field_mappings ufm").
+		Select("f.field_code, f.field_name").
+		Joins("JOIN field f ON ufm.field_id = f.id").
+		Where("ufm.user_id = ?", userID).
+		Find(&fields).Error
+	if err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("查询用户领域信息失败: %w", err))
+	}
+	return fields, nil
+}
+
+// GetUserFieldsByUserIDs 根据多个用户ID获取领域列表（含领域名称），返回 map[userID][]FieldItem
+func (repo *UserRepositoryImpl) GetUserFieldsByUserIDs(ctx context.Context, userIDs []int) (map[int][]dto.FieldItem, error) {
+	type userFieldRow struct {
+		UserID    int    `gorm:"column:user_id"`
+		FieldCode string `gorm:"column:field_code"`
+		FieldName string `gorm:"column:field_name"`
+	}
+	var rows []userFieldRow
+	if len(userIDs) == 0 {
+		return make(map[int][]dto.FieldItem), nil
+	}
+	err := repo.db.WithContext(ctx).
+		Table("user_field_mappings ufm").
+		Select("ufm.user_id, f.field_code, f.field_name").
+		Joins("JOIN field f ON ufm.field_id = f.id").
+		Where("ufm.user_id IN ?", userIDs).
+		Find(&rows).Error
+	if err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("批量查询用户领域信息失败: %w", err))
+	}
+	result := make(map[int][]dto.FieldItem)
+	for _, row := range rows {
+		result[row.UserID] = append(result[row.UserID], dto.FieldItem{
+			FieldCode: row.FieldCode,
+			FieldName: row.FieldName,
+		})
+	}
+	return result, nil
 }

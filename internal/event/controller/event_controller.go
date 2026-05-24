@@ -19,6 +19,15 @@ func NewEventController(eventService service.EventService) *EventController {
 	return &EventController{eventService: eventService}
 }
 
+// isAdmin 判断当前请求用户是否为管理员
+func isAdmin(ctx *gin.Context) bool {
+	role, exists := ctx.Get("user_role")
+	if !exists {
+		return false
+	}
+	return role == utils.RoleAdmin || role == utils.RoleSuperAdmin
+}
+
 // ListEvent 处理分页查询事件列表的请求
 func (ctr *EventController) ListEvent(ctx *gin.Context) {
 	// 初始化参数结构体并绑定查询参数
@@ -45,6 +54,13 @@ func (ctr *EventController) ListEvent(ctx *gin.Context) {
 	if err != nil {
 		utils.HandlerFunc(ctx, err)
 		return
+	}
+
+	// 非管理员清除邀请码
+	if !isAdmin(ctx) {
+		for _, e := range results {
+			e.InviteCode = ""
+		}
 	}
 
 	utils.SuccessPage(ctx, total, page, pageSize, results)
@@ -88,8 +104,16 @@ func (ctr *EventController) GetEventDetail(ctx *gin.Context) {
 		EventAddress:          event.EventAddress,
 		Status:                status,
 		CoverImageURL:         event.CoverImageURL,
+		NeedInviteCode:        event.NeedInviteCode,
+		InviteCode:            event.InviteCode,
 		Images:                event.Images,
 		UserInfo:              event.UserInfo,
+		Fields:                event.Fields,
+	}
+
+	// 非管理员清除邀请码
+	if !isAdmin(ctx) {
+		result.InviteCode = ""
 	}
 
 	utils.Success(ctx, "success", result)
@@ -102,13 +126,18 @@ func (ctr *EventController) RegistrationEvent(ctx *gin.Context) {
 		return
 	}
 
+	var req dto.RegistrationEventRequest
+	if !utils.BindJSON(ctx, &req) {
+		return
+	}
+
 	userID, err := utils.GetUserID(ctx)
 	if err != nil {
 		utils.HandlerFunc(ctx, err)
 		return
 	}
 
-	err = ctr.eventService.RegistrationEvent(ctx, urlReq.EventID, userID)
+	err = ctr.eventService.RegistrationEvent(ctx, urlReq.EventID, userID, req.InviteCode)
 	// 处理异常
 	if err != nil {
 		utils.HandlerFunc(ctx, err)
@@ -215,32 +244,11 @@ func (ctr *EventController) ListUserRegisteredEvents(ctx *gin.Context) {
 	}
 
 	// 调用服务层获取用户已报名的活动列表
-	events, total, err := ctr.eventService.ListUserRegisteredEvents(ctx, req.Page, req.PageSize, userID, req.EventStatus)
+	results, total, err := ctr.eventService.ListUserRegisteredEvents(ctx, page, pageSize, userID, req.EventStatus)
 	// 处理异常
 	if err != nil {
 		utils.HandlerFunc(ctx, err)
 		return
-	}
-
-	var results []dto.EventListResponse
-	for _, ev := range events {
-		remainingQuota := -1
-		if ev.MaxRegistrants > 0 {
-			remainingQuota = ev.MaxRegistrants - ev.CurrentRegistrants
-		}
-		results = append(results, dto.EventListResponse{
-			ID:                    ev.ID,
-			Title:                 ev.Title,
-			EventStartTime:        ev.EventStartTime,
-			EventEndTime:          ev.EventEndTime,
-			RegistrationStartTime: ev.RegistrationStartTime,
-			RegistrationEndTime:   ev.RegistrationEndTime,
-			MaxRegistrants:        ev.MaxRegistrants,
-			CurrentRegistrants:    ev.CurrentRegistrants,
-			RemainingQuota:        remainingQuota,
-			EventAddress:          ev.EventAddress,
-			CoverImageURL:         ev.CoverImageURL,
-		})
 	}
 
 	utils.SuccessPage(ctx, total, page, pageSize, results)
@@ -294,12 +302,13 @@ func (ctr *EventController) CreateEvent(ctx *gin.Context) {
 		MaxRegistrants:        req.MaxRegistrants,
 		EventAddress:          req.EventAddress,
 		CoverImageURL:         req.CoverImageURL,
+		NeedInviteCode:        req.NeedInviteCode,
 		CreateUser:            userID,
 		UpdateUser:            userID,
 	}
 
 	// 调用服务层创建活动
-	err = ctr.eventService.CreateEvent(ctx, event, req.ImageIDList, req.UserInfoIDList)
+	err = ctr.eventService.CreateEvent(ctx, event, req.ImageIDList, req.UserInfoIDList, req.FieldIDList)
 	// 处理异常
 	if err != nil {
 		utils.HandlerFunc(ctx, err)

@@ -23,7 +23,7 @@ type User struct {
 	Unit          string    `json:"unit" gorm:"column:unit;default:NULL"`
 	Department    string    `json:"department" gorm:"column:department;default:NULL"`
 	Position      string    `json:"position" gorm:"column:position;default:NULL"`
-	Industry      string    `json:"industry" gorm:"column:industry;default:NULL"`
+	IndustryID    int       `json:"industry_id" gorm:"column:industry_id;default:NULL"`
 	RefreshToken  string    `json:"refresh_token" gorm:"column:refresh_token"` // 刷新token
 	CreateTime    time.Time `json:"create_time" gorm:"column:create_time;autoCreateTime"`
 	UpdateTime    time.Time `json:"update_time" gorm:"column:update_time;autoUpdateTime"`

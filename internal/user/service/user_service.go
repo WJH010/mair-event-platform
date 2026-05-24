@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"event-platform/internal/config"
+	db "event-platform/internal/database"
 	msgsvc "event-platform/internal/message/service"
 	rd "event-platform/internal/redis"
 	"event-platform/internal/sms"
@@ -22,6 +23,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/argon2"
+	"gorm.io/gorm"
 )
 
 // UserService 用户服务接口
@@ -338,7 +340,7 @@ func (svc *UserServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (st
 	updateFields := make(map[string]any)
 	updateFields["last_login_time"] = time.Now()
 	if len(updateFields) > 0 {
-		if err := svc.userRepo.Update(ctx, userInfo.UserID, updateFields); err != nil {
+		if err := svc.userRepo.Update(ctx, nil, userInfo.UserID, updateFields); err != nil {
 			// return "", err
 			// 只记录日志，不影响登录成功
 			logrus.Errorf("更新用户[%d]最后登录时间失败: %v", userInfo.UserID, err)
@@ -442,18 +444,42 @@ func (svc *UserServiceImpl) UpdateUserInfo(ctx context.Context, userID int, req 
 	if req.Position != nil {
 		updateFields["position"] = *req.Position
 	}
-	if req.Industry != nil {
-		updateFields["industry"] = *req.Industry
+	if req.IndustryID != nil {
+		updateFields["industry_id"] = *req.IndustryID
 	}
 
-	// 执行更新
-	if len(updateFields) > 0 {
-		if err := svc.userRepo.Update(ctx, userID, updateFields); err != nil {
-			return err
+	// 开启事务
+	return db.WithTx(db.GetDB(), func(tx *gorm.DB) error {
+		// 执行更新
+		if len(updateFields) > 0 {
+			if err := svc.userRepo.Update(ctx, tx, userID, updateFields); err != nil {
+				return err
+			}
 		}
-	}
-
-	return nil
+		// 处理领域更新
+		if req.FieldIDs != nil {
+			// 先删除旧的领域映射
+			if err := svc.userRepo.DeleteUserFieldMappings(ctx, tx, userID); err != nil {
+				return err
+			}
+			// 批量创建新的领域映射
+			if len(req.FieldIDs) > 0 {
+				mappings := make([]*model.UserFieldMapping, 0, len(req.FieldIDs))
+				for _, fieldID := range req.FieldIDs {
+					mappings = append(mappings, &model.UserFieldMapping{
+						UserID:     userID,
+						FieldID:    fieldID,
+						CreateUser: userID,
+						UpdateUser: userID,
+					})
+				}
+				if err := svc.userRepo.BatchCreateUserFieldMappings(ctx, tx, mappings); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func (svc *UserServiceImpl) GetUserByID(ctx context.Context, userID int) (*dto.UserInfoResponse, error) {
@@ -466,12 +492,46 @@ func (svc *UserServiceImpl) GetUserByID(ctx context.Context, userID int) (*dto.U
 		return nil, utils.NewBusinessError(utils.ErrCodeResourceNotFound, "用户不存在，请刷新后重试")
 	}
 
+	// 查询用户领域信息
+	fields, err := svc.userRepo.GetUserFieldsByUserID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	if fields == nil {
+		fields = []dto.FieldItem{}
+	}
+	user.Fields = fields
+
 	return user, nil
 }
 
 // ListAllUsers 分页查询用户列表
 func (svc *UserServiceImpl) ListAllUsers(ctx context.Context, page, pageSize int, req dto.ListUsersRequest) ([]*dto.ListUsersResponse, int64, error) {
-	return svc.userRepo.ListAllUsers(ctx, page, pageSize, req)
+	users, total, err := svc.userRepo.ListAllUsers(ctx, page, pageSize, req)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 批量查询用户领域信息
+	if len(users) > 0 {
+		userIDs := make([]int, len(users))
+		for i, u := range users {
+			userIDs[i] = u.UserID
+		}
+		fieldsMap, err := svc.userRepo.GetUserFieldsByUserIDs(ctx, userIDs)
+		if err != nil {
+			return nil, 0, err
+		}
+		for _, u := range users {
+			if fields, ok := fieldsMap[u.UserID]; ok {
+				u.Fields = fields
+			} else {
+				u.Fields = []dto.FieldItem{}
+			}
+		}
+	}
+
+	return users, total, nil
 }
 
 // RegisterUser 用户注册
@@ -526,7 +586,7 @@ func (svc *UserServiceImpl) UpdateUserRole(ctx context.Context, userID int, req 
 	updateFields["role"] = req.Role
 	updateFields["update_user"] = operator
 
-	if err := svc.userRepo.Update(ctx, userID, updateFields); err != nil {
+	if err := svc.userRepo.Update(ctx, nil, userID, updateFields); err != nil {
 		return err
 	}
 	return nil
@@ -566,7 +626,7 @@ func (svc *UserServiceImpl) ChangePassword(ctx context.Context, userID int, req 
 	updateFields["password"] = hashedPassword
 	updateFields["update_user"] = userID
 
-	if err := svc.userRepo.Update(ctx, userID, updateFields); err != nil {
+	if err := svc.userRepo.Update(ctx, nil, userID, updateFields); err != nil {
 		return err
 	}
 	return nil
@@ -605,7 +665,7 @@ func (svc *UserServiceImpl) UpdateUserStatus(ctx context.Context, userID int, Op
 
 	// 执行更新
 	if len(updateFields) > 0 {
-		if err := svc.userRepo.Update(ctx, userID, updateFields); err != nil {
+		if err := svc.userRepo.Update(ctx, nil, userID, updateFields); err != nil {
 			return err
 		}
 	}
@@ -638,7 +698,7 @@ func (svc *UserServiceImpl) SMSLogin(ctx context.Context, req dto.SMSLoginReques
 
 	updateFields := make(map[string]any)
 	updateFields["last_login_time"] = time.Now()
-	if err := svc.userRepo.Update(ctx, userInfo.UserID, updateFields); err != nil {
+	if err := svc.userRepo.Update(ctx, nil, userInfo.UserID, updateFields); err != nil {
 		logrus.Errorf("更新用户[%d]最后登录时间失败: %v", userInfo.UserID, err)
 	}
 
@@ -692,7 +752,7 @@ func (svc *UserServiceImpl) ResetPassword(ctx context.Context, req dto.ResetPass
 	updateFields["password"] = hashedPassword
 	updateFields["update_user"] = user.UserID
 
-	if err := svc.userRepo.Update(ctx, user.UserID, updateFields); err != nil {
+	if err := svc.userRepo.Update(ctx, nil, user.UserID, updateFields); err != nil {
 		return err
 	}
 	return nil

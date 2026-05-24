@@ -10,7 +10,7 @@ type EventRegistrationInfo struct {
 	Name        string    `json:"name" gorm:"column:name;type:varchar(255)"`
 	PhoneNumber string    `json:"phone_number" gorm:"column:phone_number;type:varchar(20)"`
 	Email       string    `json:"email" gorm:"column:email;type:varchar(64)"`
-	Industry    string    `json:"industry" gorm:"column:industry;type:varchar(255)"`
+	IndustryID  int       `json:"industry_id" gorm:"column:industry_id"`
 	Position    string    `json:"position" gorm:"column:position;type:varchar(255)"`
 	Unit        string    `json:"unit" gorm:"column:unit;type:varchar(255)"`
 	Department  string    `json:"department" gorm:"column:department;type:varchar(255)"`
