@@ -253,8 +253,8 @@ func (repo *MsgGroupRepositoryImpl) ListGroupsUsers(ctx context.Context, page in
 					ELSE '未知'
 				END AS gender,
 				u.phone_number, u.email, u.unit, u.department, u.position, 
-				u.industry, i.industry_name`).
-		Joins("LEFT JOIN industries i ON u.industry = i.industry_code").
+				u.industry_id, i.industry_name`).
+		Joins("LEFT JOIN industries i ON u.industry_id = i.id").
 		Joins("JOIN user_msg_group_mappings m ON u.user_id = m.user_id").
 		Where("m.msg_group_id = ? AND m.is_deleted = ?", msgGroupID, utils.DeletedFlagNo)
 
@@ -292,8 +292,8 @@ func (repo *MsgGroupRepositoryImpl) ListNotInGroupUsers(ctx context.Context, pag
 					ELSE '未知'
 				END AS gender,
 				u.phone_number, u.email, u.unit, u.department, u.position, 
-				u.industry, i.industry_name`).
-		Joins("LEFT JOIN industries i ON u.industry = i.industry_code").
+				u.industry_id, i.industry_name`).
+		Joins("LEFT JOIN industries i ON u.industry_id = i.id").
 		Where(`NOT EXISTS (
 						SELECT 1  
 						FROM user_msg_group_mappings m  
@@ -317,8 +317,8 @@ func (repo *MsgGroupRepositoryImpl) ListNotInGroupUsers(ctx context.Context, pag
 	if req.Position != "" {
 		query = query.Where("u.position LIKE ?", "%"+req.Position+"%")
 	}
-	if req.Industry != "" {
-		query = query.Where("u.industry = ?", req.Industry)
+	if req.IndustryID != "" {
+		query = query.Where("u.industry_id = ?", req.IndustryID)
 	}
 
 	// 计算总数

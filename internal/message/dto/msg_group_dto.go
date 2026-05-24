@@ -56,7 +56,7 @@ type ListNotInGroupUsersRequest struct {
 	Unit       string `form:"unit" binding:"omitempty,max=255"`
 	Department string `form:"department" binding:"omitempty,max=255"`
 	Position   string `form:"position" binding:"omitempty,max=255"`
-	Industry   string `form:"industry" binding:"omitempty,numeric"`
+	IndustryID  string `form:"industry_id" binding:"omitempty,numeric"`
 }
 
 // ListMsgGroupResponse 消息群组列表响应
@@ -98,7 +98,7 @@ type ListGroupsUsersResponse struct {
 	Unit         string `json:"unit"`
 	Department   string `json:"department"`
 	Position     string `json:"position"`
-	Industry     string `json:"industry"`
+	IndustryID   int    `json:"industry_id"`
 	IndustryName string `json:"industry_name"`
 }
 
