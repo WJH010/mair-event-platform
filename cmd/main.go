@@ -10,6 +10,7 @@ import (
 	"event-platform/internal/utils"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -23,7 +24,11 @@ func main() {
 	utils.InitLogger()
 
 	// 2.加载配置
-	cfg, err := config.LoadConfig("../config.yaml")
+	configPath := os.Getenv("CONFIG_PATH")
+	if configPath == "" {
+		configPath = "../config.yaml"
+	}
+	cfg, err := config.LoadConfig(configPath)
 	if err != nil {
 		logrus.Fatalf("服务器启动失败: %v", err)
 	}
