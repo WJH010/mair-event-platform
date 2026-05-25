@@ -1,6 +1,5 @@
 # ============ 构建阶段 ============
-# FROM golang:1.25-alpine AS builder
-FROM registry.cn-hangzhou.aliyuncs.com/google_containers/golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 
 WORKDIR /app
 
@@ -12,7 +11,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /app/server ./cmd/main.go
 
 # ============ 运行阶段 ============
-# FROM alpine:3.19
+FROM alpine:3.19
 FROM registry.cn-hangzhou.aliyuncs.com/library/alpine:3.19
 
 RUN apk --no-cache add ca-certificates tzdata \
