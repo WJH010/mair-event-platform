@@ -1,7 +1,7 @@
 logs
 config.yaml
 docker-compose.infra.yaml
-docker-compose.yml
+docker-compose.yaml
 .env
 .env.test
 .env.stage
