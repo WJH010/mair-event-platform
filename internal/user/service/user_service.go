@@ -550,9 +550,6 @@ func (svc *UserServiceImpl) RegisterUser(ctx context.Context, req dto.RegisterRe
 	// 消费令牌
 	svc.consumeVerifyToken(req.VerifyToken)
 
-	// 默认头像
-	avatar := "http://47.113.194.28:9000/news-platform/images/20 2508/1754126743005963551.webp"
-
 	// 密码哈希
 	hashedPassword, err := hashPassword(req.Password)
 	if err != nil {
@@ -562,7 +559,6 @@ func (svc *UserServiceImpl) RegisterUser(ctx context.Context, req dto.RegisterRe
 	user := &model.User{
 		PhoneNumber: req.PhoneNumber,
 		Password:    hashedPassword,
-		AvatarURL:   avatar,
 		Role:        "USER",
 	}
 
