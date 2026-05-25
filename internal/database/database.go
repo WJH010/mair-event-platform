@@ -3,7 +3,6 @@ package database
 import (
 	"event-platform/internal/config"
 	"fmt"
-	"time"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -46,7 +45,7 @@ func NewDatabase(cfg config.DatabaseConfig) (*gorm.DB, error) {
 	// 设置连接池
 	sqlDB.SetMaxOpenConns(cfg.MaxOpenConnections)
 	sqlDB.SetMaxIdleConns(cfg.MaxIdleConnections)
-	sqlDB.SetConnMaxLifetime(cfg.ConnectionMaxLifetime * time.Second)
+	sqlDB.SetConnMaxLifetime(cfg.ConnectionMaxLifetime)
 
 	// 自动迁移模型
 	// GORM 的 AutoMigrate 会根据定义的模型自动创建或更新数据库表结构（生产环境通常会禁用，改为手动管理表结构）
