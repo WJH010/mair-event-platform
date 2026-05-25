@@ -30,7 +30,7 @@ import (
 type UserService interface {
 	// RefreshToken 通过刷新令牌获取新的access token和refresh token
 	RefreshToken(ctx context.Context, refreshToken string) (string, string, error)
-	// Login 后台登录
+	// Login 登录
 	Login(ctx context.Context, req dto.LoginRequest) (string, string, error)
 	// Logout 退出登录
 	Logout(ctx context.Context, userID int, accessToken string) error
