@@ -1,0 +1,124 @@
+version: "3.8"
+
+services:
+  # ---------- Go 应用 ----------
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mair-event-app
+    restart: always
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    environment:
+      - APP_ENV=production
+      - TZ=Asia/Shanghai
+      # 数据库
+      - DB_HOST=mysql
+      - DB_PORT=3306
+      - DB_USERNAME=${DB_USERNAME:-root}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME:-event_platform}
+      # Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      - REDIS_DB=0
+      # MinIO
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
+      - MINIO_USE_SSL=false
+      - MINIO_BUCKET_NAME=${MINIO_BUCKET:-event-platform}
+      # JWT
+      - JWT_SECRET=${JWT_SECRET}
+      - JWT_REFRESH_SECRET=${JWT_REFRESH_SECRET}
+      - JWT_SESSION_KEY_SECRET=${JWT_SESSION_KEY_SECRET}
+      - JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-72}
+      # SMS
+      - SMS_ACCESS_KEY_ID=${SMS_ACCESS_KEY_ID}
+      - SMS_ACCESS_KEY_SECRET=${SMS_ACCESS_KEY_SECRET}
+      - SMS_SIGN_NAME=${SMS_SIGN_NAME}
+      - SMS_TEMPLATE_CODE=${SMS_TEMPLATE_CODE}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
+    volumes:
+      - app-logs:/app/logs
+    networks:
+      - mair-net
+
+  # ---------- MySQL ----------
+  mysql:
+    image: mysql:8.0
+    container_name: mair-event-mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_DATABASE: ${DB_NAME:-event_platform}
+      TZ: Asia/Shanghai
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./deploy/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mair-net
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7-alpine
+    container_name: mair-event-redis
+    restart: always
+    command: redis-server --requirepass ${REDIS_PASSWORD:-} --appendonly yes
+    ports:
+      - "${REDIS_EXTERNAL_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mair-net
+
+  # ---------- MinIO ----------
+  minio:
+    image: minio/minio:latest
+    container_name: mair-event-minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio-data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - mair-net
+
+volumes:
+  mysql-data:
+  redis-data:
+  minio-data:
+  app-logs:
+
+networks:
+  mair-net:
+    driver: bridge

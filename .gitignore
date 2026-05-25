@@ -5,3 +5,4 @@ docker-compose.yml
 .env
 .env.test
 .env.stage
+deploy.sh
