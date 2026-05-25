@@ -12,7 +12,6 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /app/serv
 
 # ============ 运行阶段 ============
 FROM alpine:3.19
-FROM registry.cn-hangzhou.aliyuncs.com/library/alpine:3.19
 
 RUN apk --no-cache add ca-certificates tzdata \
     && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
