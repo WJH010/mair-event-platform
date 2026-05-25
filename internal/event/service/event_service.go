@@ -10,6 +10,7 @@ import (
 	filerepo "event-platform/internal/file/repository"
 	userrepo "event-platform/internal/user/repository"
 	"event-platform/internal/utils"
+	"fmt"
 	"math/rand"
 	"time"
 
@@ -472,6 +473,14 @@ func (svc *EventServiceImpl) CreateEvent(ctx context.Context, event *model.Event
 	// 需要邀请码时自动生成
 	if event.NeedInviteCode == 1 {
 		event.InviteCode = generateInviteCode()
+	}
+	// 如果封面为空，默认使用第一个图片, 如果没有图片, 则设置为默认封面
+	if event.CoverImageURL == "" {
+		if len(imageIDList) > 0 {
+			event.CoverImageURL = fmt.Sprintf("%d", imageIDList[0])
+		} else {
+			event.CoverImageURL = "resource/image/default_cover.png"
+		}
 	}
 
 	// 使用 GORM 函数式事务

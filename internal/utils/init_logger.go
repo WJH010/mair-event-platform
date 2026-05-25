@@ -116,10 +116,10 @@ func InitLogger() {
 	logrus.SetFormatter(&CustomFormatter{})
 
 	// 创建日志目录
-	os.MkdirAll("../logs/info", 0755)
-	os.MkdirAll("../logs/error", 0755)
+	os.MkdirAll("./logs/info", 0755)
+	os.MkdirAll("./logs/error", 0755)
 
-	infoLogPath := "../logs/info/info.log"
+	infoLogPath := "./logs/info/info.log"
 	infoWriter, err := rotatelogs.New(
 		infoLogPath+".%Y%m%d",
 		rotatelogs.WithLinkName(infoLogPath),
@@ -131,7 +131,7 @@ func InitLogger() {
 	}
 
 	// 创建 Error 级别日志的分割器（处理 Error、Fatal 和 Panic 级别）
-	errLogPath := "../logs/error/err.log"
+	errLogPath := "./logs/error/err.log"
 	errorWriter, err := rotatelogs.New(
 		errLogPath+".%Y%m%d",
 		rotatelogs.WithLinkName(errLogPath),
