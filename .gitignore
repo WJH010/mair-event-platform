@@ -1,4 +1,7 @@
 logs
 config.yaml
 docker-compose.infra.yaml
-/cmd/news-release-platform
+docker-compose.yml
+.env
+.env.test
+.env.stage
