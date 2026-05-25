@@ -21,7 +21,7 @@ RUN apk --no-cache add ca-certificates tzdata \
 WORKDIR /app
 
 COPY --from=builder /app/server .
-COPY --from=builder /app/config.docker.yaml ./config.yaml
+COPY --from=builder /app/config.yaml ./config.yaml
 
 RUN mkdir -p /app/logs
 
