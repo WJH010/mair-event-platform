@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // UserRepository 用户仓库接口
@@ -35,6 +36,8 @@ type UserRepository interface {
 	GetUserFieldMappings(ctx context.Context, userID int) ([]*model.UserFieldMapping, error)
 	// BatchCreateUserFieldMappings 批量创建用户领域映射
 	BatchCreateUserFieldMappings(ctx context.Context, tx *gorm.DB, mappings []*model.UserFieldMapping) error
+	// BatchCreateUserFieldMappingsIgnoreConflict 批量创建用户领域映射（忽略唯一约束冲突）
+	BatchCreateUserFieldMappingsIgnoreConflict(ctx context.Context, tx *gorm.DB, mappings []*model.UserFieldMapping) error
 	// DeleteUserFieldMappings 删除用户的所有领域映射
 	DeleteUserFieldMappings(ctx context.Context, tx *gorm.DB, userID int) error
 	// GetUserFieldsByUserID 根据用户ID获取领域列表（含领域名称）
@@ -265,6 +268,20 @@ func (repo *UserRepositoryImpl) BatchCreateUserFieldMappings(ctx context.Context
 		if exist {
 			return utils.NewBusinessError(utils.ErrCodeResourceExists, "已添加该领域，请勿重复添加")
 		}
+		return utils.NewSystemError(fmt.Errorf("批量创建用户领域映射失败: %w", err))
+	}
+	return nil
+}
+
+// BatchCreateUserFieldMappingsIgnoreConflict 批量创建用户领域映射（忽略唯一约束冲突）
+func (repo *UserRepositoryImpl) BatchCreateUserFieldMappingsIgnoreConflict(ctx context.Context, tx *gorm.DB, mappings []*model.UserFieldMapping) error {
+	if len(mappings) == 0 {
+		return nil
+	}
+	if tx == nil {
+		tx = repo.db
+	}
+	if err := tx.WithContext(ctx).Clauses(clause.OnConflict{DoNothing: true}).Create(&mappings).Error; err != nil {
 		return utils.NewSystemError(fmt.Errorf("批量创建用户领域映射失败: %w", err))
 	}
 	return nil

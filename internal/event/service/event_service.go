@@ -8,6 +8,7 @@ import (
 	"event-platform/internal/event/repository"
 	"event-platform/internal/event/stock"
 	filerepo "event-platform/internal/file/repository"
+	usermodel "event-platform/internal/user/model"
 	userrepo "event-platform/internal/user/repository"
 	"event-platform/internal/utils"
 	"fmt"
@@ -294,6 +295,30 @@ func (svc *EventServiceImpl) RegistrationEvent(ctx context.Context, eventID int,
 		return err
 	}
 
+	eventFields, err := svc.eventRepo.GetEventFieldsByEventID(ctx, eventID)
+	if err != nil {
+		svc.stockSvc.Incr(ctx, eventID)
+		return err
+	}
+	userFieldMappings, err := svc.userRepo.GetUserFieldMappings(ctx, userID)
+	if err != nil {
+		svc.stockSvc.Incr(ctx, eventID)
+		return err
+	}
+	userFieldSet := make(map[int]struct{}, len(userFieldMappings))
+	for _, m := range userFieldMappings {
+		userFieldSet[m.FieldID] = struct{}{}
+	}
+	var newFieldMappings []*usermodel.UserFieldMapping
+	for _, f := range eventFields {
+		if _, exists := userFieldSet[f.FieldID]; !exists {
+			newFieldMappings = append(newFieldMappings, &usermodel.UserFieldMapping{
+				UserID:  userID,
+				FieldID: f.FieldID,
+			})
+		}
+	}
+
 	// 使用 GORM 函数式事务
 	err = svc.eventRepo.ExecTransaction(ctx, func(tx *gorm.DB) error {
 		// 执行活动报名逻辑
@@ -327,6 +352,13 @@ func (svc *EventServiceImpl) RegistrationEvent(ctx context.Context, eventID int,
 		// 条件更新：原子校验名额 + 递增计数
 		if err := svc.eventRepo.IncrementRegistrants(ctx, tx, eventID); err != nil {
 			return err
+		}
+
+		// 自动为用户添加活动关联但用户未关注的领域
+		if len(newFieldMappings) > 0 {
+			if err := svc.userRepo.BatchCreateUserFieldMappingsIgnoreConflict(ctx, tx, newFieldMappings); err != nil {
+				return err
+			}
 		}
 
 		return nil // 返回 nil，GORM 自动提交
