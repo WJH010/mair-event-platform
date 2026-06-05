@@ -9,6 +9,9 @@ type Message struct {
 	ID         int       `json:"id" gorm:"primaryKey;column:id"`
 	Title      string    `json:"title" gorm:"type:varchar(255);column:title"`
 	Content    string    `json:"content" gorm:"type:mediumtext;column:content"`
+	SenderID   int       `json:"sender_id" gorm:"column:sender_id"`
+	TargetType string    `json:"target_type" gorm:"column:target_type;"` // ALL-全体用户，FIELD-领域
+	TargetID   int       `json:"target_id" gorm:"column:target_id;default:0"`
 	SendTime   time.Time `json:"send_time" gorm:"column:send_time"`
 	IsDeleted  string    `json:"is_deleted" gorm:"column:is_deleted;default:N"` // 软删除标志，默认值为N
 	CreateTime time.Time `json:"create_time" gorm:"column:create_time;autoCreateTime"`

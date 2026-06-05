@@ -8,7 +8,6 @@ import (
 	"errors"
 	"event-platform/internal/config"
 	db "event-platform/internal/database"
-	msgsvc "event-platform/internal/message/service"
 	rd "event-platform/internal/redis"
 	"event-platform/internal/sms"
 	"event-platform/internal/user/dto"
@@ -61,7 +60,6 @@ type UserService interface {
 // UserServiceImpl 用户服务实现
 type UserServiceImpl struct {
 	userRepo repository.UserRepository
-	msgSvc   msgsvc.MsgGroupService
 	cfg      *config.Config
 	smsSvc   *sms.SMSService
 }
@@ -92,8 +90,8 @@ const (
 )
 
 // NewUserService 创建用户服务实例
-func NewUserService(userRepo repository.UserRepository, msgSvc msgsvc.MsgGroupService, cfg *config.Config) UserService {
-	return &UserServiceImpl{userRepo: userRepo, msgSvc: msgSvc, cfg: cfg, smsSvc: sms.NewSMSService(cfg)}
+func NewUserService(userRepo repository.UserRepository, cfg *config.Config) UserService {
+	return &UserServiceImpl{userRepo: userRepo, cfg: cfg, smsSvc: sms.NewSMSService(cfg)}
 }
 
 // 生成access token（短期有效）

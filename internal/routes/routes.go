@@ -20,10 +20,6 @@ import (
 	filerepo "event-platform/internal/file/repository"
 	filesvc "event-platform/internal/file/service"
 
-	msgctr "event-platform/internal/message/controller"
-	msgrepo "event-platform/internal/message/repository"
-	msgsvc "event-platform/internal/message/service"
-
 	eventctr "event-platform/internal/event/controller"
 	eventmodel "event-platform/internal/event/model"
 	eventrepo "event-platform/internal/event/repository"
@@ -33,6 +29,10 @@ import (
 	fieldctr "event-platform/internal/field/controller"
 	fieldrepo "event-platform/internal/field/repository"
 	fieldsvc "event-platform/internal/field/service"
+
+	messagectr "event-platform/internal/message/controller"
+	messagerepo "event-platform/internal/message/repository"
+	messagesvc "event-platform/internal/message/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -46,34 +46,31 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 	fileRepo := filerepo.NewFileRepository(db)
 	userRepo := userrepo.NewUserRepository(db)
 	industryRepo := industryrepo.NewIndustryRepository(db)
-	msgRepo := msgrepo.NewMessageRepository(db)
 	eventRepo := eventrepo.NewEventRepository(db)
 	eventUserInfoRepo := eventrepo.NewEventUserInfoRepository(db)
-	msgGroupRepo := msgrepo.NewMsgGroupRepository(db, msgRepo)
 	userRoleRepo := userrepo.NewUserRoleRepository(db)
 	fieldRepo := fieldrepo.NewFieldRepository(db)
+	messageRepo := messagerepo.NewMessageRepository(db)
 
 	// 初始化服务
 	fileService := filesvc.NewFileService(minioRepo, fileRepo)
-	msgService := msgsvc.NewMessageService(msgRepo, msgGroupRepo)
-	msgGroupService := msgsvc.NewMsgGroupService(msgGroupRepo, msgRepo)
-	userService := usersvc.NewUserService(userRepo, msgGroupService, cfg)
+	userService := usersvc.NewUserService(userRepo, cfg)
 	industryService := industrysvc.NewIndustryService(industryRepo)
 	eventService := eventsvc.NewEventService(eventRepo, eventUserInfoRepo, userRepo, fileRepo, eventstock.NewStockService(), cache.New[int, *eventmodel.Event](3*time.Second))
 	eventUserInfoService := eventsvc.NewEventUserInfoService(eventUserInfoRepo)
 	userRoleService := usersvc.NewUserRoleService(userRoleRepo)
 	fieldService := fieldsvc.NewFieldService(fieldRepo)
+	messageService := messagesvc.NewMessageService(messageRepo, userRepo)
 
 	// 初始化控制器
 	fileController := filectr.NewFileController(fileService)
 	userController := userctr.NewUserController(userService)
 	industryController := industryctr.NewIndustryController(industryService)
-	msgController := msgctr.NewMessageController(msgService)
 	eventController := eventctr.NewEventController(eventService)
 	eventUserInfoController := eventctr.NewEventUserInfoController(eventUserInfoService)
-	msgGroupController := msgctr.NewMsgGroupController(msgGroupService)
 	userRoleController := userctr.NewUserRoleController(userRoleService)
 	fieldController := fieldctr.NewFieldController(fieldService)
+	messageController := messagectr.NewMessageController(messageService)
 
 	api := router.Group("/api")
 	{
@@ -121,43 +118,6 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 		{
 			files.POST("", fileController.UploadFile)
 			files.DELETE("/:id", fileController.DeleteImage)
-		}
-
-		messages := api.Group("/messages")
-		messages.Use(middleware.AuthMiddleware(cfg))
-		{
-			messages.GET("/:id", msgController.GetMessageContent)
-			messages.GET("/unread", msgController.HasUnreadMessages)
-			messages.PUT("/read", msgController.MarkAllMessagesAsRead)
-
-			adminMessages := messages.Group("")
-			adminMessages.Use(middleware.RoleMiddleware(utils.RoleAdmin))
-			{
-				adminMessages.DELETE("/:id", msgController.RevokeGroupMessage)
-			}
-		}
-
-		messageGroups := api.Group("/message-groups")
-		messageGroups.Use(middleware.AuthMiddleware(cfg))
-		{
-			messageGroups.GET("", msgController.ListUserMessageGroups)
-			messageGroups.GET("/:id/messages", msgController.ListMsgByGroups)
-
-			adminMG := messageGroups.Group("")
-			adminMG.Use(middleware.RoleMiddleware(utils.RoleAdmin))
-			{
-				adminMG.GET("/all", msgGroupController.ListMsgGroups)
-				adminMG.GET("/:id", msgGroupController.GetMsgGroupByID)
-				adminMG.GET("/:id/users", msgGroupController.ListGroupsUsers)
-				adminMG.GET("/:id/users/not-in-group", msgGroupController.ListNotInGroupUsers)
-				adminMG.GET("/:id/messages/all", msgController.ListMessagesByGroupID)
-				adminMG.POST("", msgGroupController.CreateMsgGroup)
-				adminMG.POST("/:id/users", msgGroupController.AddUserToGroup)
-				adminMG.POST("/:id/messages", msgController.SendMessage)
-				adminMG.PUT("/:id", msgGroupController.UpdateMsgGroup)
-				adminMG.DELETE("/:id", msgGroupController.DeleteMsgGroup)
-				adminMG.DELETE("/:id/users", msgGroupController.DeleteUserFromGroup)
-			}
 		}
 
 		events := api.Group("/events")
@@ -223,6 +183,24 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 					adminIndustries.PUT("/:id", industryController.UpdateIndustry)
 					adminIndustries.DELETE("/:id", industryController.DeleteIndustry)
 					adminIndustries.PATCH("/:id/status", industryController.UpdateIndustryStatus)
+				}
+			}
+		}
+
+		messages := api.Group("/messages")
+		{
+			authMessages := messages.Group("")
+			authMessages.Use(middleware.AuthMiddleware(cfg))
+			{
+				authMessages.GET("/me", messageController.ListUserMessages)
+				authMessages.GET("/me/unread-count", messageController.GetUnreadCount)
+
+				adminMessages := authMessages.Group("")
+				adminMessages.Use(middleware.RoleMiddleware(utils.RoleAdmin))
+				{
+					adminMessages.POST("", messageController.CreateMessage)
+					adminMessages.DELETE("/:id", messageController.RevokeMessage)
+					adminMessages.GET("", messageController.ListMessages)
 				}
 			}
 		}

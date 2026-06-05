@@ -44,6 +44,10 @@ type UserRepository interface {
 	GetUserFieldsByUserID(ctx context.Context, userID int) ([]dto.FieldItem, error)
 	// GetUserFieldsByUserIDs 根据多个用户ID获取领域列表（含领域名称）
 	GetUserFieldsByUserIDs(ctx context.Context, userIDs []int) (map[int][]dto.FieldItem, error)
+	// GetAllEnabledUserIDs 获取所有启用状态的用户ID列表
+	GetAllEnabledUserIDs(ctx context.Context) ([]int, error)
+	// GetUserIDsByFieldID 根据领域ID获取关联的用户ID列表（仅启用状态用户）
+	GetUserIDsByFieldID(ctx context.Context, fieldID int) ([]int, error)
 }
 
 // UserRepositoryImpl 用户仓库实现
@@ -353,4 +357,27 @@ func (repo *UserRepositoryImpl) GetUserFieldsByUserIDs(ctx context.Context, user
 		})
 	}
 	return result, nil
+}
+
+func (repo *UserRepositoryImpl) GetAllEnabledUserIDs(ctx context.Context) ([]int, error) {
+	var userIDs []int
+	if err := repo.db.WithContext(ctx).Model(&model.User{}).
+		Where("status = ?", utils.UserStatusEnabled).
+		Pluck("user_id", &userIDs).Error; err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("查询启用用户ID列表失败: %w", err))
+	}
+	return userIDs, nil
+}
+
+func (repo *UserRepositoryImpl) GetUserIDsByFieldID(ctx context.Context, fieldID int) ([]int, error) {
+	var userIDs []int
+	if err := repo.db.WithContext(ctx).
+		Table("user_field_mappings ufm").
+		Select("ufm.user_id").
+		Joins("JOIN users u ON ufm.user_id = u.user_id AND u.status = ?", utils.UserStatusEnabled).
+		Where("ufm.field_id = ?", fieldID).
+		Pluck("ufm.user_id", &userIDs).Error; err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("根据领域ID查询用户ID列表失败: %w", err))
+	}
+	return userIDs, nil
 }

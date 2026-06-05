@@ -2,55 +2,54 @@ package dto
 
 import "time"
 
-// MessageIDRequest 消息内容查询请求参数
+type CreateMessageRequest struct {
+	Title      string `json:"title" binding:"required,max=255"`
+	Content    string `json:"content" binding:"required"`
+	TargetType string `json:"target_type" binding:"required,oneof=ALL FIELD"`
+	TargetID   int    `json:"target_id" binding:"omitempty,min=1"`
+}
+
+type MessageListRequest struct {
+	Page       int    `form:"page" binding:"omitempty,min=1"`
+	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"`
+	Title      string `form:"title" binding:"omitempty"`
+	TargetType string `form:"target_type" binding:"omitempty,oneof=ALL FIELD"`
+	TargetID   int    `form:"target_id" binding:"omitempty,min=1"`
+	UserID     int    `form:"user_id" binding:"omitempty,min=1"`
+}
+
+type UserMessageListRequest struct {
+	Page     int `form:"page" binding:"omitempty,min=1"`
+	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"`
+}
+
 type MessageIDRequest struct {
-	MessageID int `uri:"id" binding:"required,numeric"` // 消息ID，必须为数字
+	ID int `uri:"id" binding:"required,numeric"`
 }
 
-// ListPageRequest 分页请求
-type ListPageRequest struct {
-	Page     int `form:"page" binding:"omitempty,min=1"`              // 页码，默认1
-	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"` // 每页数量，默认10，最大100
+type MessageListResponse struct {
+	ID         int       `json:"id"`
+	Title      string    `json:"title"`
+	Content    string    `json:"content"`
+	SenderID   int       `json:"sender_id"`
+	TargetType string    `json:"target_type"`
+	TargetID   int       `json:"target_id"`
+	SendTime   time.Time `json:"send_time"`
+	CreateTime time.Time `json:"create_time"`
 }
 
-// HasUnreadMessagesRequest 获取用户是否有未读消息请求参数
-type HasUnreadMessagesRequest struct {
-	TypeCode string `form:"type_code" binding:"omitempty,user_group_message_type"` // 消息类型代码
+type UserMessageListResponse struct {
+	ID         int       `json:"id"`
+	Title      string    `json:"title"`
+	Content    string    `json:"content"`
+	SenderID   int       `json:"sender_id"`
+	TargetType string    `json:"target_type"`
+	TargetID   int       `json:"target_id"`
+	SendTime   time.Time `json:"send_time"`
+	IsRead     int       `json:"is_read"`
+	ReadTime   time.Time `json:"read_time"`
 }
 
-// ListMessageByGroupRequest 分页查询分组内消息列表请求参数
-type ListMessageByGroupRequest struct {
-	Page     int `form:"page" binding:"omitempty,min=1"`              // 页码，最小为1
-	PageSize int `form:"page_size" binding:"omitempty,min=1,max=100"` // 页大小，1-100
-}
-
-// ListMessageByGroupIDRequest 分页查询分组内消息列表请求参数
-type ListMessageByGroupIDRequest struct {
-	Page       int    `form:"page" binding:"omitempty,min=1"`              // 页码，默认1
-	PageSize   int    `form:"page_size" binding:"omitempty,min=1,max=100"` // 每页数量，默认10，最大100
-	QueryScope string `form:"query_scope" binding:"omitempty,query_scope"` // 查询范围
-	Title      string `form:"title" binding:"omitempty,max=255"`           // 消息标题
-}
-
-// SendMessageRequest 发送消息请求参数
-type SendMessageRequest struct {
-	Title   string `json:"title" binding:"required,max=255"` // 消息标题，必填，最大长度255
-	Content string `json:"content" binding:"required"`       // 消息内容，必填
-}
-
-// MessageContentResponse 消息内容响应结构体
-type MessageContentResponse struct {
-	ID       int       `json:"id"`
-	Title    string    `json:"title"`
-	Content  string    `json:"content"`
-	SendTime time.Time `json:"send_time"`
-}
-
-// ListMessageDTO 分页查询分组内消息列表响应结构体
-type ListMessageDTO struct {
-	ID       int       `json:"id"`
-	MapID    int       `json:"map_id"` // 关联表 message_group_mappings 的ID
-	Title    string    `json:"title"`
-	Content  string    `json:"content"`
-	SendTime time.Time `json:"send_time"`
+type UnreadCountResponse struct {
+	UnreadCount int64 `json:"unread_count"`
 }
