@@ -34,6 +34,10 @@ import (
 	messagerepo "event-platform/internal/message/repository"
 	messagesvc "event-platform/internal/message/service"
 
+	dashboardctr "event-platform/internal/dashboard/controller"
+	dashboardrepo "event-platform/internal/dashboard/repository"
+	dashboardsvc "event-platform/internal/dashboard/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -51,6 +55,7 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 	userRoleRepo := userrepo.NewUserRoleRepository(db)
 	fieldRepo := fieldrepo.NewFieldRepository(db)
 	messageRepo := messagerepo.NewMessageRepository(db)
+	dashboardRepo := dashboardrepo.NewDashboardRepository(db)
 
 	// 初始化服务
 	fileService := filesvc.NewFileService(minioRepo, fileRepo)
@@ -61,6 +66,7 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 	userRoleService := usersvc.NewUserRoleService(userRoleRepo)
 	fieldService := fieldsvc.NewFieldService(fieldRepo)
 	messageService := messagesvc.NewMessageService(messageRepo, userRepo)
+	dashboardService := dashboardsvc.NewDashboardService(dashboardRepo, userRepo)
 
 	// 初始化控制器
 	fileController := filectr.NewFileController(fileService)
@@ -71,6 +77,7 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 	userRoleController := userctr.NewUserRoleController(userRoleService)
 	fieldController := fieldctr.NewFieldController(fieldService)
 	messageController := messagectr.NewMessageController(messageService)
+	dashboardController := dashboardctr.NewDashboardController(dashboardService)
 
 	api := router.Group("/api")
 	{
@@ -203,6 +210,16 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 					adminMessages.GET("", messageController.ListMessages)
 				}
 			}
+		}
+
+		dashboard := api.Group("/dashboard")
+		dashboard.Use(middleware.AuthMiddleware(cfg), middleware.RoleMiddleware(utils.RoleAdmin))
+		{
+			dashboard.GET("/users", dashboardController.ListDashboardUsers)
+			dashboard.GET("/events", dashboardController.ListDashboardEvents)
+			dashboard.GET("/events/:id", dashboardController.GetEventOverview)
+			dashboard.GET("/events/:id/registrations", dashboardController.ListEventRegUsers)
+			dashboard.GET("/events/:id/statistics", dashboardController.GetEventStatistics)
 		}
 	}
 }
