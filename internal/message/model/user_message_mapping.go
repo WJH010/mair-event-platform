@@ -10,7 +10,7 @@ type UserMessageMapping struct {
 	UserID     int       `json:"user_id" gorm:"column:user_id"`
 	MessageID  int       `json:"message_id" gorm:"column:message_id"`
 	IsRead     int       `json:"is_read" gorm:"column:is_read;default:0"`               // 是否已读，默认值为0
-	ReadTime   time.Time `json:"read_time" gorm:"column:read_time" gorm:"default:null"` // 读取时间，默认值为null
+	ReadTime   *time.Time `json:"read_time" gorm:"column:read_time"` // 读取时间，未读时为NULL
 	CreateTime time.Time `json:"create_time" gorm:"column:create_time;autoCreateTime"`
 	UpdateTime time.Time `json:"update_time" gorm:"column:update_time;autoUpdateTime"`
 	CreateUser int       `json:"create_user" gorm:"column:create_user"` // 数据创建用户ID

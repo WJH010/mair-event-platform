@@ -77,7 +77,7 @@ type EventListResponse struct {
 	MemberCount           int          `json:"member_count"`            // 报名人数
 	NeedInviteCode        int          `json:"need_invite_code"`        // 是否需要邀请码 1：需要 2：不需要
 	InviteCode            string       `json:"invite_code,omitempty"`   // 邀请码（管理员可见）
-	Fields                []EventField `json:"fields"`                  // 领域列表
+	Fields                []EventField `json:"fields" gorm:"-"`         // 领域列表
 }
 
 // Image 关联图片列表结构体
@@ -109,9 +109,9 @@ type EventDetailResponse struct {
 	CoverImageURL         string          `json:"cover_image_url"`         // 封面图片URL
 	NeedInviteCode        int             `json:"need_invite_code"`        // 是否需要邀请码 1：需要 2：不需要
 	InviteCode            string          `json:"invite_code,omitempty"`   // 邀请码（管理员可见）
-	Images                []Image         `json:"images"`                  // 图片列表
-	UserInfo              []EventUserInfo `json:"user_info"`               // 用户信息字段列表
-	Fields                []EventField    `json:"fields"`                  // 领域列表
+	Images                []Image         `json:"images" gorm:"-"`         // 图片列表
+	UserInfo              []EventUserInfo `json:"user_info" gorm:"-"`      // 用户信息字段列表
+	Fields                []EventField    `json:"fields" gorm:"-"`         // 领域列表
 }
 
 // ListEventRegUserResponse 活动报名列表查询请求参数

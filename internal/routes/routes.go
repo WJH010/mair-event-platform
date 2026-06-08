@@ -129,12 +129,11 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 
 		events := api.Group("/events")
 		{
-			events.GET("", eventController.ListEvent)
-			events.GET("/:id", eventController.GetEventDetail)
-
 			authEvents := events.Group("")
 			authEvents.Use(middleware.AuthMiddleware(cfg))
 			{
+				authEvents.GET("", eventController.ListEvent)
+				authEvents.GET("/:id", eventController.GetEventDetail)
 				authEvents.GET("/me/registrations", eventController.ListUserRegisteredEvents)
 				authEvents.POST("/:id/registrations", eventController.RegistrationEvent)
 				authEvents.GET("/:id/registrations/me", eventController.IsUserRegistered)

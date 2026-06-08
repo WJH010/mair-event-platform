@@ -47,7 +47,7 @@ type UserMessageListResponse struct {
 	TargetID   int       `json:"target_id"`
 	SendTime   time.Time `json:"send_time"`
 	IsRead     int       `json:"is_read"`
-	ReadTime   time.Time `json:"read_time"`
+	ReadTime   *time.Time `json:"read_time"`
 }
 
 type UnreadCountResponse struct {
