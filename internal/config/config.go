@@ -12,6 +12,13 @@ type Config struct {
 	JWT      JWTConfig      `yaml:"jwt"`
 	Redis    RedisConfig    `yaml:"redis"`
 	SMS      SMSConfig      `yaml:"sms"`
+	Security SecurityConfig `yaml:"security"`
+}
+
+// SecurityConfig 安全配置
+type SecurityConfig struct {
+	PhoneEncryptKey  string `yaml:"phone_encrypt_key"`  // 手机号AES加密密钥（32字节）
+	PhoneHashPepper  string `yaml:"phone_hash_pepper"`  // 手机号哈希pepper（全局固定盐）
 }
 
 // AppConfig 应用配置

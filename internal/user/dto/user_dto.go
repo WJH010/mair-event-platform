@@ -130,3 +130,12 @@ type ResetPasswordRequest struct {
 	VerifyToken string `json:"verify_token" binding:"required"`
 	NewPassword string `json:"new_password" binding:"required"`
 }
+
+type GetPhoneNumberRequest struct {
+	UserID int `uri:"id" binding:"required,numeric"`
+}
+
+type GetPhoneNumberResponse struct {
+	UserID      int    `json:"user_id"`
+	PhoneNumber string `json:"phone_number"`
+}

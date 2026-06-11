@@ -28,10 +28,12 @@ type UserRepository interface {
 	GetUserByID(ctx context.Context, userID int) (*model.User, error)
 	// GetPasswordByUserName 根据用户名获取密码
 	GetPasswordByUserName(ctx context.Context, userName string) (*model.User, error)
-	// GetPasswordByPhoneNumber 根据手机号获取用户信息（用于登录验证）
-	GetPasswordByPhoneNumber(ctx context.Context, phoneNumber string) (*model.User, error)
-	// GetByPhoneNumber 根据手机号查询用户是否存在
-	GetByPhoneNumber(ctx context.Context, phoneNumber string) (*model.User, error)
+	// GetPasswordByPhoneNumber 根据手机号哈希获取用户信息（用于登录验证）
+	GetPasswordByPhoneNumber(ctx context.Context, phoneHash string) (*model.User, error)
+	// GetByPhoneNumber 根据手机号哈希查询用户是否存在
+	GetByPhoneNumber(ctx context.Context, phoneHash string) (*model.User, error)
+	// GetByPhoneHash 根据手机号哈希查询用户
+	GetByPhoneHash(ctx context.Context, phoneHash string) (*model.User, error)
 	// GetUserFieldMappings 根据用户ID获取领域映射列表
 	GetUserFieldMappings(ctx context.Context, userID int) ([]*model.UserFieldMapping, error)
 	// BatchCreateUserFieldMappings 批量创建用户领域映射
@@ -69,7 +71,7 @@ func (repo *UserRepositoryImpl) Create(ctx context.Context, user *model.User) er
 			switch fieldName {
 			case "username":
 				return utils.NewBusinessError(utils.ErrCodeResourceExists, "用户名已被注册")
-			case "phone_number":
+			case "phone_hash":
 				return utils.NewBusinessError(utils.ErrCodeResourceExists, "该手机号已注册")
 			default:
 				return utils.NewBusinessError(utils.ErrCodeResourceExists, "用户数据已存在")
@@ -226,10 +228,10 @@ func (repo *UserRepositoryImpl) GetUserByID(ctx context.Context, userID int) (*m
 	return &user, nil
 }
 
-// GetPasswordByPhoneNumber 根据手机号获取用户信息
-func (repo *UserRepositoryImpl) GetPasswordByPhoneNumber(ctx context.Context, phoneNumber string) (*model.User, error) {
+// GetPasswordByPhoneNumber 根据手机号哈希获取用户信息
+func (repo *UserRepositoryImpl) GetPasswordByPhoneNumber(ctx context.Context, phoneHash string) (*model.User, error) {
 	var user model.User
-	if err := repo.db.WithContext(ctx).Where("phone_number = ? AND status = ?", phoneNumber, 1).First(&user).Error; err != nil {
+	if err := repo.db.WithContext(ctx).Where("phone_hash = ? AND status = ?", phoneHash, 1).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, utils.NewBusinessError(utils.ErrCodeResourceNotFound, "手机号未注册或账号已被禁用")
 		}
@@ -238,10 +240,22 @@ func (repo *UserRepositoryImpl) GetPasswordByPhoneNumber(ctx context.Context, ph
 	return &user, nil
 }
 
-// GetByPhoneNumber 根据手机号查询用户是否存在
-func (repo *UserRepositoryImpl) GetByPhoneNumber(ctx context.Context, phoneNumber string) (*model.User, error) {
+// GetByPhoneNumber 根据手机号哈希查询用户是否存在
+func (repo *UserRepositoryImpl) GetByPhoneNumber(ctx context.Context, phoneHash string) (*model.User, error) {
 	var user model.User
-	if err := repo.db.WithContext(ctx).Where("phone_number = ?", phoneNumber).First(&user).Error; err != nil {
+	if err := repo.db.WithContext(ctx).Where("phone_hash = ?", phoneHash).First(&user).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, utils.NewSystemError(fmt.Errorf("查询用户失败: %w", err))
+	}
+	return &user, nil
+}
+
+// GetByPhoneHash 根据手机号哈希查询用户
+func (repo *UserRepositoryImpl) GetByPhoneHash(ctx context.Context, phoneHash string) (*model.User, error) {
+	var user model.User
+	if err := repo.db.WithContext(ctx).Where("phone_hash = ?", phoneHash).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}

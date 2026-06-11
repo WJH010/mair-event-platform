@@ -55,6 +55,8 @@ type UserService interface {
 	SendSMSVerifyCode(ctx context.Context, req dto.SendSMSRequest) error
 	// VerifySMSCode 验证短信验证码
 	VerifySMSCode(ctx context.Context, req dto.VerifySMSRequest) (string, error)
+	// GetPhoneNumber 查看用户手机号原文
+	GetPhoneNumber(ctx context.Context, targetUserID int, operatorID int, operatorRole string) (*dto.GetPhoneNumberResponse, error)
 }
 
 // UserServiceImpl 用户服务实现
@@ -310,11 +312,13 @@ func verifyPassword(encodedHash, password string) (bool, error) {
 
 // Login 登录接口
 func (svc *UserServiceImpl) Login(ctx context.Context, req dto.LoginRequest) (string, string, error) {
-	// 从数据库中根据手机号查询密码
-	userInfo, err := svc.userRepo.GetPasswordByPhoneNumber(ctx, req.PhoneNumber)
+	// 通过手机号哈希查询用户
+	phoneHash := utils.HashPhoneNumber(req.PhoneNumber, svc.cfg.Security.PhoneHashPepper)
+	userInfo, err := svc.userRepo.GetPasswordByPhoneNumber(ctx, phoneHash)
 	if err != nil {
 		return "", "", err
 	}
+
 	// 用户密码为空，不允许登录后台系统
 	if userInfo.Password == "" {
 		return "", "", utils.NewBusinessError(utils.ErrCodeAuthFailed, "账号未设置密码，无法登录")
@@ -554,10 +558,18 @@ func (svc *UserServiceImpl) RegisterUser(ctx context.Context, req dto.RegisterRe
 		return err
 	}
 
+	phoneHash := utils.HashPhoneNumber(req.PhoneNumber, svc.cfg.Security.PhoneHashPepper)
+	phoneEncrypted, err := utils.EncryptPhoneNumber(req.PhoneNumber, svc.cfg.Security.PhoneEncryptKey)
+	if err != nil {
+		return utils.NewSystemError(fmt.Errorf("加密手机号失败: %w", err))
+	}
+
 	user := &model.User{
-		PhoneNumber: req.PhoneNumber,
-		Password:    hashedPassword,
-		Role:        "USER",
+		PhoneNumber:    utils.MaskPhoneNumber(req.PhoneNumber),
+		PhoneEncrypted: phoneEncrypted,
+		PhoneHash:      phoneHash,
+		Password:       hashedPassword,
+		Role:           "USER",
 	}
 
 	if err := svc.userRepo.Create(ctx, user); err != nil {
@@ -605,7 +617,8 @@ func (svc *UserServiceImpl) ChangePassword(ctx context.Context, userID int, req 
 		return utils.NewBusinessError(utils.ErrCodeResourceNotFound, "用户不存在，请刷新后重试")
 	}
 	// 验证手机号是否匹配
-	if user.PhoneNumber != phone {
+	phoneHash := utils.HashPhoneNumber(phone, svc.cfg.Security.PhoneHashPepper)
+	if user.PhoneHash != phoneHash {
 		return utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌与当前用户手机号不匹配")
 	}
 	// 消费令牌
@@ -679,7 +692,8 @@ func (svc *UserServiceImpl) SMSLogin(ctx context.Context, req dto.SMSLoginReques
 		return "", "", utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌与手机号不匹配")
 	}
 
-	userInfo, err := svc.userRepo.GetPasswordByPhoneNumber(ctx, req.PhoneNumber)
+	phoneHash := utils.HashPhoneNumber(req.PhoneNumber, svc.cfg.Security.PhoneHashPepper)
+	userInfo, err := svc.userRepo.GetPasswordByPhoneNumber(ctx, phoneHash)
 	if err != nil {
 		return "", "", err
 	}
@@ -727,7 +741,8 @@ func (svc *UserServiceImpl) ResetPassword(ctx context.Context, req dto.ResetPass
 		return utils.NewBusinessError(utils.ErrCodeParamInvalid, "验证令牌与手机号不匹配")
 	}
 
-	user, err := svc.userRepo.GetByPhoneNumber(ctx, req.PhoneNumber)
+	phoneHash := utils.HashPhoneNumber(req.PhoneNumber, svc.cfg.Security.PhoneHashPepper)
+	user, err := svc.userRepo.GetByPhoneNumber(ctx, phoneHash)
 	if err != nil {
 		return err
 	}
@@ -759,8 +774,9 @@ func (svc *UserServiceImpl) SendSMSVerifyCode(ctx context.Context, req dto.SendS
 		return utils.NewSystemError(fmt.Errorf("Redis服务不可用"))
 	}
 
+	phoneHash := utils.HashPhoneNumber(req.PhoneNumber, svc.cfg.Security.PhoneHashPepper)
 	if req.Purpose == "REGISTER" {
-		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, req.PhoneNumber)
+		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, phoneHash)
 		if err != nil {
 			return err
 		}
@@ -768,7 +784,7 @@ func (svc *UserServiceImpl) SendSMSVerifyCode(ctx context.Context, req dto.SendS
 			return utils.NewBusinessError(utils.ErrCodeResourceExists, "该手机号已注册")
 		}
 	} else {
-		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, req.PhoneNumber)
+		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, phoneHash)
 		if err != nil {
 			return err
 		}
@@ -830,7 +846,8 @@ func (svc *UserServiceImpl) VerifySMSCode(ctx context.Context, req dto.VerifySMS
 	}
 
 	if req.Purpose == "LOGIN" {
-		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, req.PhoneNumber)
+		phoneHash := utils.HashPhoneNumber(req.PhoneNumber, svc.cfg.Security.PhoneHashPepper)
+		existUser, err := svc.userRepo.GetByPhoneNumber(ctx, phoneHash)
 		if err != nil {
 			return "", err
 		}
@@ -898,4 +915,32 @@ func (svc *UserServiceImpl) consumeVerifyToken(token string) {
 		tokenKey := fmt.Sprintf("sms:token:%s", token)
 		rdb.Del(context.Background(), tokenKey)
 	}
+}
+
+func (svc *UserServiceImpl) GetPhoneNumber(ctx context.Context, targetUserID int, operatorID int, operatorRole string) (*dto.GetPhoneNumberResponse, error) {
+	if targetUserID != operatorID && operatorRole != utils.RoleAdmin && operatorRole != utils.RoleSuperAdmin {
+		return nil, utils.NewBusinessError(utils.ErrCodePermissionDenied, "无权查看该用户手机号")
+	}
+
+	user, err := svc.userRepo.GetUserByID(ctx, targetUserID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil {
+		return nil, utils.NewBusinessError(utils.ErrCodeResourceNotFound, "用户不存在")
+	}
+
+	if user.PhoneEncrypted == "" {
+		return nil, utils.NewBusinessError(utils.ErrCodeResourceNotFound, "用户未绑定手机号")
+	}
+
+	phoneNumber, err := utils.DecryptPhoneNumber(user.PhoneEncrypted, svc.cfg.Security.PhoneEncryptKey)
+	if err != nil {
+		return nil, utils.NewSystemError(fmt.Errorf("解密手机号失败: %w", err))
+	}
+
+	return &dto.GetPhoneNumberResponse{
+		UserID:      targetUserID,
+		PhoneNumber: phoneNumber,
+	}, nil
 }

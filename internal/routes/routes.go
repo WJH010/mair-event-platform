@@ -98,6 +98,7 @@ func SetupRoutes(cfg *config.Config, router *gin.Engine, minioRepo filerepo.MinI
 				authUsers.GET("/me", userController.GetUserInfo)
 				authUsers.PUT("/me", userController.UpdateUserInfo)
 				authUsers.PATCH("/me/password", userController.ChangePassword)
+				authUsers.GET("/:id/phone-number", userController.GetPhoneNumber)
 
 				adminUsers := authUsers.Group("")
 				adminUsers.Use(middleware.RoleMiddleware(utils.RoleAdmin))

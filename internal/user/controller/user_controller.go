@@ -297,6 +297,30 @@ func (ctr *UserController) ChangePassword(ctx *gin.Context) {
 	utils.Success(ctx, "success", nil)
 }
 
+// GetPhoneNumber 查看用户手机号原文
+func (ctr *UserController) GetPhoneNumber(ctx *gin.Context) {
+	var req dto.GetPhoneNumberRequest
+	if !utils.BindUrl(ctx, &req) {
+		return
+	}
+
+	operatorID, err := utils.GetUserID(ctx)
+	if err != nil {
+		utils.HandlerFunc(ctx, err)
+		return
+	}
+	operatorRole, _ := ctx.Get("user_role")
+	operatorRoleStr, _ := operatorRole.(string)
+
+	resp, err := ctr.userService.GetPhoneNumber(ctx, req.UserID, operatorID, operatorRoleStr)
+	if err != nil {
+		utils.HandlerFunc(ctx, err)
+		return
+	}
+
+	utils.Success(ctx, "success", resp)
+}
+
 // UpdateUserStatus 更新用户状态
 func (ctr *UserController) UpdateUserStatus(ctx *gin.Context) {
 	// 从路径参数获取userID
