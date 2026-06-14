@@ -33,7 +33,7 @@ type EventRepository interface {
 	// IsUserRegistered 查询用户是否已报名活动
 	IsUserRegistered(ctx context.Context, eventID int, userID int) (bool, error)
 	// ListUserRegisteredEvents 获取用户已报名活动列表
-	ListUserRegisteredEvents(ctx context.Context, page, pageSize int, userID int, eventStatus string) ([]*model.Event, int64, error)
+	ListUserRegisteredEvents(ctx context.Context, page, pageSize int, userID int, eventStatus string) ([]*dto.EventListResponse, int64, error)
 	// CreateEvent 创建活动
 	CreateEvent(ctx context.Context, tx *gorm.DB, event *model.Event) error
 	// UpdateEvent 更新活动
@@ -100,7 +100,14 @@ func (repo *EventRepositoryImpl) List(ctx context.Context, page, pageSize int, e
 	// 构建基础查询
 	query = query.Table("events e").
 		Select(`e.*, 
-				COUNT(DISTINCT m.user_id) as member_count`).
+				COUNT(DISTINCT m.user_id) as member_count,
+				CASE 
+					WHEN e.event_start_time > NOW() THEN '未开始'
+					WHEN e.event_start_time <= NOW() AND e.event_end_time >= NOW() THEN '进行中'
+					WHEN e.event_end_time < NOW() THEN '已结束'
+					ELSE ''
+				END AS status,
+				CASE WHEN e.max_registrants > 0 THEN e.max_registrants - e.current_registrants ELSE -1 END AS remaining_quota`).
 		Joins("LEFT JOIN event_user_mappings m ON e.id = m.event_id AND m.is_deleted = ?", utils.DeletedFlagNo).
 		Group("e.id")
 
@@ -134,6 +141,8 @@ func (repo *EventRepositoryImpl) List(ctx context.Context, page, pageSize int, e
 		query = query.Where("e.registration_start_time > ?", time.Now())
 		// 按活动开始时间升序排列
 		query = query.Order("e.event_start_time ASC")
+	} else {
+		query = query.Order("e.event_start_time DESC")
 	}
 
 	// 如果传入了活动标题，则添加标题查询条件
@@ -151,10 +160,6 @@ func (repo *EventRepositoryImpl) List(ctx context.Context, page, pageSize int, e
 	if err := query.Offset(offset).Limit(pageSize).Find(&events).Error; err != nil {
 		return nil, 0, utils.NewSystemError(fmt.Errorf("数据库查询失败: %v", err))
 	}
-
-	fmt.Println(query.ToSQL(func(tx *gorm.DB) *gorm.DB {
-		return tx.Offset(offset).Limit(pageSize).Find(&events)
-	}))
 
 	return events, total, nil
 }
@@ -262,7 +267,7 @@ func (repo *EventRepositoryImpl) IsUserRegistered(ctx context.Context, eventID i
 }
 
 // ListUserRegisteredEvents 获取用户已报名活动列表
-func (repo *EventRepositoryImpl) ListUserRegisteredEvents(ctx context.Context, page, pageSize int, userID int, eventStatus string) ([]*model.Event, int64, error) {
+func (repo *EventRepositoryImpl) ListUserRegisteredEvents(ctx context.Context, page, pageSize int, userID int, eventStatus string) ([]*dto.EventListResponse, int64, error) {
 	if page < 1 {
 		page = 1
 	}
@@ -271,15 +276,23 @@ func (repo *EventRepositoryImpl) ListUserRegisteredEvents(ctx context.Context, p
 	}
 
 	offset := (page - 1) * pageSize
-	var events []*model.Event
+	var events []*dto.EventListResponse
 	var total int64
 
 	query := repo.db.WithContext(ctx)
 
 	query = query.Table("events e").
+		Select(`e.*, 
+				(SELECT COUNT(DISTINCT eum2.user_id) FROM event_user_mappings eum2 WHERE eum2.event_id = e.id AND eum2.is_deleted = ?) as member_count,
+				CASE 
+					WHEN e.registration_start_time > NOW() THEN 'NotBegun'
+					WHEN e.registration_start_time <= NOW() AND e.registration_end_time >= NOW() THEN 'InProgress'
+					WHEN e.registration_end_time < NOW() THEN 'Completed'
+					ELSE ''
+				END AS status,
+				CASE WHEN e.max_registrants > 0 THEN e.max_registrants - e.current_registrants ELSE -1 END AS remaining_quota`, utils.DeletedFlagNo).
 		Joins("JOIN event_user_mappings eum ON e.id = eum.event_id").
-		Where("eum.user_id = ? AND e.is_deleted = ? AND eum.is_deleted = ?", userID, utils.DeletedFlagNo, utils.DeletedFlagNo).
-		Find(&events)
+		Where("eum.user_id = ? AND e.is_deleted = ? AND eum.is_deleted = ?", userID, utils.DeletedFlagNo, utils.DeletedFlagNo)
 
 	// 根据活动状态拼接查询条件
 	if eventStatus == model.EventStatusInProgress {
@@ -291,6 +304,13 @@ func (repo *EventRepositoryImpl) ListUserRegisteredEvents(ctx context.Context, p
 		// 已结束的活动：报名截止时间在当前时间之前
 		query = query.Where("e.registration_end_time < ?", time.Now())
 		// 按活动开始时间降序排列
+		query = query.Order("e.event_start_time DESC")
+	} else if eventStatus == model.EventStatusNotBegun {
+		// 未开始的活动：报名开始时间在当前时间之后
+		query = query.Where("e.registration_start_time > ?", time.Now())
+		// 按活动开始时间升序排列
+		query = query.Order("e.event_start_time ASC")
+	} else {
 		query = query.Order("e.event_start_time DESC")
 	}
 

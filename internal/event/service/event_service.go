@@ -85,14 +85,14 @@ func NewEventService(
 }
 
 // GetEventStatus 根据开始时间和结束时间计算活动状态
-func (svc *EventServiceImpl) GetEventStatus(registrationStartTime time.Time, registrationEndTime time.Time) string {
-	if registrationStartTime.After(time.Now()) {
+func (svc *EventServiceImpl) GetEventStatus(eventStartTime time.Time, eventEndTime time.Time) string {
+	if eventStartTime.After(time.Now()) {
 		return "未开始"
 	}
-	if registrationStartTime.Before(time.Now()) && registrationEndTime.After(time.Now()) {
+	if eventStartTime.Before(time.Now()) && eventEndTime.After(time.Now()) {
 		return "正在进行"
 	}
-	if registrationEndTime.Before(time.Now()) {
+	if eventEndTime.Before(time.Now()) {
 		return "已结束"
 	}
 	return ""
@@ -103,11 +103,6 @@ func (svc *EventServiceImpl) ListEvent(ctx context.Context, page, pageSize int, 
 	events, total, err := svc.eventRepo.List(ctx, page, pageSize, eventStatus, queryScope, eventTitle)
 	if err != nil {
 		return nil, 0, err
-	}
-	for _, e := range events {
-		if e.MaxRegistrants > 0 {
-			e.RemainingQuota = e.MaxRegistrants - e.CurrentRegistrants
-		}
 	}
 
 	// 批量查询活动领域信息
@@ -458,7 +453,10 @@ func (svc *EventServiceImpl) ListUserRegisteredEvents(ctx context.Context, page,
 			CurrentRegistrants:    ev.CurrentRegistrants,
 			RemainingQuota:        remainingQuota,
 			EventAddress:          ev.EventAddress,
+			Status:                svc.GetEventStatus(ev.EventStartTime, ev.EventEndTime),
 			CoverImageURL:         ev.CoverImageURL,
+			NeedInviteCode:        ev.NeedInviteCode,
+			InviteCode:            ev.InviteCode,
 		})
 	}
 
