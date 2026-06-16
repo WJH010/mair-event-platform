@@ -20,10 +20,11 @@ type MinIORepository interface {
 type MinIORepositoryImpl struct {
 	client     *minio.Client
 	bucketName string
+	publicURL  string
 }
 
 // NewMinIORepository 创建MinIO存储实例
-func NewMinIORepository(endpoint, accessKeyID, secretAccessKey string, useSSL bool, bucketName string) (MinIORepository, error) {
+func NewMinIORepository(endpoint, accessKeyID, secretAccessKey string, useSSL bool, bucketName string, publicURL string) (MinIORepository, error) {
 	client, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKeyID, secretAccessKey, ""),
 		Secure: useSSL,
@@ -48,6 +49,7 @@ func NewMinIORepository(endpoint, accessKeyID, secretAccessKey string, useSSL bo
 	return &MinIORepositoryImpl{
 		client:     client,
 		bucketName: bucketName,
+		publicURL:  publicURL,
 	}, nil
 }
 
@@ -59,7 +61,11 @@ func (repo *MinIORepositoryImpl) UploadFile(ctx context.Context, objectName, fil
 	}
 
 	// 生成文件的访问URL
-	url := fmt.Sprintf("%s/%s/%s", repo.client.EndpointURL().String(), repo.bucketName, info.Key)
+	baseURL := repo.publicURL
+	if baseURL == "" {
+		baseURL = repo.client.EndpointURL().String()
+	}
+	url := fmt.Sprintf("%s/%s/%s", baseURL, repo.bucketName, info.Key)
 	return url, nil
 }
 

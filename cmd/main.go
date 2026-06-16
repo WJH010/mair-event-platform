@@ -61,6 +61,7 @@ func main() {
 		cfg.MinIO.SecretAccessKey,
 		cfg.MinIO.UseSSL,
 		cfg.MinIO.BucketName,
+		cfg.MinIO.PublicURL,
 	)
 	if err != nil {
 		logrus.Panic("创建MinIO存储实例失败: ", err)

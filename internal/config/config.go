@@ -50,6 +50,7 @@ type MinIOConfig struct {
 	SecretAccessKey string `yaml:"secret_access_key"`
 	UseSSL          bool   `yaml:"use_ssl"`
 	BucketName      string `yaml:"bucket_name"`
+	PublicURL       string `yaml:"public_url"`
 }
 
 // JWTConfig JWT 配置
